@@ -1,0 +1,12 @@
+[
+  {
+    "name": "explore",
+    "recorded": "1.26.51",
+    "dimensions": {
+      "overworld": 411,
+      "nether": 454,
+      "end": 150
+    },
+    "bytes": 2210953
+  }
+]

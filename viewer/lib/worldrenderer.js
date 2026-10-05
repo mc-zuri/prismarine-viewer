@@ -9,6 +9,16 @@ function mod (x, n) {
   return ((x % n) + n) % n
 }
 
+// The blocks' UVs are taken inside their face (centroid): with multisampling, a pixel on a face's edge is otherwise
+// coloured as at its centre, off the face, where the UVs run on into the next texture of the atlas (far off, at a low
+// angle, many texels on; a transparent one lets the sky show through: dotted lines along the blocks' edges). GLSL ES
+// 3.00 (WebGL 2) only: WebGL 1 has no centroid, and keeps a plain varying.
+const CENTROID_UV = `#if __VERSION__ >= 300
+centroid varying vec2 vUv;
+#else
+varying vec2 vUv;
+#endif`
+
 class WorldRenderer {
   constructor (scene, numWorkers = 4) {
     this.sectionMeshs = {}
@@ -37,7 +47,10 @@ class WorldRenderer {
       Object.assign(shader.uniforms, this.uniforms)
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', 'attribute vec3 animation;\nuniform float time;\n#include <common>')
+        .replace('#include <uv_pars_vertex>', `#ifdef USE_UV\n${CENTROID_UV}\nuniform mat3 uvTransform;\n#endif`)
         .replace('#include <uv_vertex>', '#include <uv_vertex>\n#ifdef USE_UV\nvUv.y += mod(floor(time / animation.y), animation.x) * animation.z;\n#endif')
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <uv_pars_fragment>', `#ifdef USE_UV\n${CENTROID_UV}\n#endif`)
     }
 
     this.workers = []
@@ -92,6 +105,10 @@ class WorldRenderer {
       this.scene.remove(mesh)
     }
     this.sectionMeshs = {}
+    // (a mesh of the world before arriving late is dropped, and no section of it is waited for)
+    this.loadedChunks = {}
+    this.sectionsOutstanding.clear()
+    this.renderUpdateEmitter.emit('update')
     for (const worker of this.workers) {
       worker.postMessage({ type: 'reset' })
     }

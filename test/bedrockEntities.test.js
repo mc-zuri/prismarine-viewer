@@ -284,6 +284,24 @@ describe('what the game sets', () => {
     expect(at('frontfoot1').y).toBeLessThan(at('frontleg1').y)
   })
 
+  withAssets('1.26.51')('a shield is held by its handle, in either hand: its face outward, its length along the arm\'s swing', () => {
+    for (const [slot, locator] of [['mainhand', 'rightItem'], ['offhand', 'leftItem']]) {
+      const player = new BedrockEntity({ ...assets('1.26.51'), texture: () => null, textureUrl: () => null }, 'minecraft:player')
+      player.setState({ equipment: { [slot]: 'shield' } })
+      player.setMotion({ position: { x: 0, y: 64, z: 0 }, yaw: 0, headYaw: 0, pitch: 0, onGround: true })
+      ticks(player, 20)
+      player.object.updateMatrixWorld(true)
+      const hand = player.findBone(locator.toLowerCase()).group.getWorldPosition(new THREE.Vector3())
+      const shield = player.object.getObjectByName('shield')
+      // geometry.shield: its handle's centre 12.5 above the bone's pivot, its plate 22 long (y) and facing z
+      const handle = shield.localToWorld(new THREE.Vector3(0, 12.5, 0))
+      expect([slot, handle.distanceTo(hand) < 1 / 16]).toEqual([slot, true])
+      const q = shield.getWorldQuaternion(new THREE.Quaternion())
+      expect(Math.abs(new THREE.Vector3(0, 0, 1).applyQuaternion(q).x)).toBeGreaterThan(0.9)
+      expect(Math.abs(new THREE.Vector3(0, 1, 0).applyQuaternion(q).z)).toBeGreaterThan(0.9)
+    }
+  })
+
   withAssets('1.26.51')('a fish swims upright in water and flops on land', () => {
     const data = assets('1.26.51')
     const cod = new BedrockEntity({ ...data, texture: () => null }, 'minecraft:cod')

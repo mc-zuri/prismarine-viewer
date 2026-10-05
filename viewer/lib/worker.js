@@ -57,6 +57,7 @@ async function handle (data) {
   } else if (data.type === 'reset') {
     world = null
     blocksStates = null
+    for (const key in dirtySections) delete dirtySections[key]
   } else if (world === null) {
     // its version could not be loaded: nothing to apply these to
   } else if (data.type === 'chunk') {

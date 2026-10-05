@@ -27,16 +27,16 @@ function versionSelect (select, versions) {
 }
 
 // The viewer, drawing into container, its camera orbiting a target: { viewer, controls, renderer }. onFrame(dt) runs
-// before every frame is drawn.
-function createViewer (container, onFrame = () => {}) {
+// before every frame is drawn. orbit: false leaves the camera to the page (no controls).
+function createViewer (container, onFrame = () => {}, { orbit = true } = {}) {
   const renderer = new THREE.WebGLRenderer({ antialias: true })
   renderer.setPixelRatio(window.devicePixelRatio || 1)
   renderer.setSize(container.clientWidth, container.clientHeight)
   container.appendChild(renderer.domElement)
 
   const viewer = new Viewer(renderer)
-  const controls = new THREE.OrbitControls(viewer.camera, renderer.domElement)
-  controls.autoRotateSpeed = 1
+  const controls = orbit ? new THREE.OrbitControls(viewer.camera, renderer.domElement) : null
+  if (controls) controls.autoRotateSpeed = 1
 
   let last = performance.now()
   function animate () {
@@ -44,7 +44,7 @@ function createViewer (container, onFrame = () => {}) {
     const now = performance.now()
     onFrame((now - last) / 1000)
     last = now
-    controls.update()
+    controls?.update()
     viewer.update()
     renderer.render(viewer.scene, viewer.camera)
   }

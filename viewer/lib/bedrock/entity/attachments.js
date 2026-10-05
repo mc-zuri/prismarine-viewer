@@ -20,6 +20,8 @@ const { loadTexture, loadPixels } = globalThis.isElectron ? require('../../utils
 const SLOTS = { mainhand: 'main_hand', offhand: 'off_hand', head: 'head', chest: 'chest', legs: 'legs', feet: 'feet', body: 'body' }
 // q.item_slot_to_bone_name
 const SLOT_BONES = { main_hand: 'rightitem', off_hand: 'leftitem', head: 'head', chest: 'body', legs: 'body', feet: 'body', body: 'body' }
+// where the game puts the y 0 of a bone bound by its binding: 24 below the bone it binds to
+const BOUND_OFFSET = new THREE.Vector3(0, 24, 0)
 // the queries an attachable answers itself; the rest are its wearer's
 const OWN_QUERIES = new Set(['life_time', 'anim_time', 'delta_time', 'key_frame_lerp_time', 'all_animations_finished', 'any_animation_finished', 'get_default_bone_pivot'])
 // a held icon, as Java's item models show it in a third person's right hand (thirdperson_righthand: rotation in degrees,
@@ -153,9 +155,10 @@ class Attachments {
         const onto = typeof target === 'string' && target ? this.wearer.findBone(target) : null
         if (!onto) continue
         onto.group.add(bone.group)
-        // a bone bound by name has the pivot of the wearer's (armour); one bound by its binding goes where the bone it
-        // binds to is, its animations placing it from there (a shield's)
-        bone.restPosition = def?.binding ? new THREE.Vector3() : bone.pivot.clone().sub(onto.pivot)
+        // a bone bound by name has the pivot of the wearer's (armour); one bound by its binding is placed from the bone it
+        // binds to as its geometry places it, 24 lower: the game puts a bound bone's y 0 at 24 below the bone it binds to
+        // (wiki.bedrock.dev, Attachables), and its animations move it from there (a shield's: its handle in the hand)
+        bone.restPosition = def?.binding ? bone.pivot.clone().sub(BOUND_OFFSET) : bone.pivot.clone().sub(onto.pivot)
         bone.group.position.copy(bone.restPosition)
         moved.push(bone.group)
       }

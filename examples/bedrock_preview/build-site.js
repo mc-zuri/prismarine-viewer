@@ -6,14 +6,17 @@
 //     its items_textures.json, meta.json and the textures its item icons name, each in the version's folder that
 //     versions.json says holds it (the page finds them there)
 //   - bedrock-items-check.json: every version's item icons checked (itemCheck.js), which the server works out
-// The replay has no recordings there: it reads them through the server.
+//   - recordings/index.json: the recordings the replay lists, those of public/recordings (and of $RECORDINGS, copied
+//     in): the page reads them itself
 //
 //   node examples/bedrock_preview/build-site.js <out directory>
 //   $BEDROCK_ASSETS: another export than minecraft-assets' data/bedrock
+//   $RECORDINGS: a directory of recordings to put in the site too
 const fs = require('fs')
 const path = require('path')
 const { checkExport, bedrockExport } = require('./itemCheck')
 const { iconsOf } = require('../../viewer/lib/bedrock/itemIcon')
+const { listRecordings } = require('./recording')
 
 const out = path.resolve(process.argv[2] ?? '_site')
 const viewerPublic = path.join(__dirname, '../../public')
@@ -68,13 +71,18 @@ async function main () {
   // (the viewer's own page and the version list of its builds are not the site's)
   const viewerFiles = copyTree(viewerPublic, out, file => ['index.html', 'prerender.json'].includes(path.relative(viewerPublic, file)))
   const pageFiles = copyTree(pagesPublic, out)
+  const recordingsDir = path.join(out, 'recordings')
+  fs.mkdirSync(recordingsDir, { recursive: true })
+  if (process.env.RECORDINGS) copyTree(process.env.RECORDINGS, recordingsDir)
+  const recordings = listRecordings(recordingsDir)
+  fs.writeFileSync(path.join(recordingsDir, 'index.json'), JSON.stringify(recordings))
   const exp = bedrockExport()
   const assetFiles = copyItemAssets(exp, path.join(out, 'bedrock-assets'))
   const check = await checkExport(null, exp)
   fs.writeFileSync(path.join(out, 'bedrock-items-check.json'), JSON.stringify(check))
   // (served as they are: no Jekyll)
   fs.writeFileSync(path.join(out, '.nojekyll'), '')
-  console.log(`${out}: ${viewerFiles} files of the viewer, ${pageFiles} of the pages, ${assetFiles} of minecraft-assets' Bedrock export (${exp.versions.length} versions), the items checked`)
+  console.log(`${out}: ${viewerFiles} files of the viewer, ${pageFiles} of the pages, ${assetFiles} of minecraft-assets' Bedrock export (${exp.versions.length} versions), the items checked, ${recordings.length} recordings`)
 }
 
 main().catch(err => {

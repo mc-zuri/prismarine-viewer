@@ -1,6 +1,6 @@
 /* global document, fetch, requestAnimationFrame, performance */
-// Plays a recording of a Bedrock client's packets (a .proxy.bin of bedrock-observer or the proxy recorder, which the
-// server reads: see recording.js) in the viewer: the world it was made in (the world.json beside it: a palette and
+// Plays a recording of a Bedrock client's packets (a .proxy.bin of bedrock-observer or the proxy recorder, as it is or
+// gzipped: read in the page, by replayWorker.js) in the viewer: the world it was made in (the world.json beside it: a palette and
 // boxes filled with it), and its entities as the server told the client of them, through viewer.updateEntity as a
 // WorldView tells it of a bot's. Play, pause, restart, a speed, and an entity for the camera to follow.
 const { Vec3 } = require('vec3')
@@ -121,12 +121,29 @@ function frame (now) {
   requestAnimationFrame(frame)
 }
 
+// the reader of recordings (replay-worker.js): it fetches one and reads its packets, off the page's thread
+const reader = new window.Worker('replay-worker.js')
+let reading = 0
+function read (name) {
+  const asked = ++reading
+  return new Promise((resolve, reject) => {
+    reader.onmessage = ({ data }) => {
+      if (asked !== reading) return
+      if (data.type === 'status') status.textContent = data.text
+      else if (data.type === 'recording') resolve(data.recording)
+      else if (data.type === 'error') reject(new Error(data.message))
+    }
+    reader.postMessage({ name })
+  })
+}
+
 async function load (name) {
   status.textContent = `${name}: reading...`
-  const res = await fetch('recording?name=' + encodeURIComponent(name))
-  const data = await res.json()
-  if (!res.ok) {
-    status.textContent = `${name}: ${data.error}`
+  let data
+  try {
+    data = await read(name)
+  } catch (err) {
+    status.textContent = `${name}: ${err.message}`
     return
   }
   await preload(data.version)
@@ -145,10 +162,10 @@ async function load (name) {
 }
 
 async function main () {
-  // (a static copy of the pages, such as GitHub Pages has, has no server to read recordings)
-  const names = await fetch('recordings').then(r => r.ok ? r.json() : []).catch(() => [])
+  // (the recordings of public/recordings, as build-site.js lists them; the server adds those of its directory)
+  const names = await fetch('recordings/index.json').then(r => r.ok ? r.json() : []).catch(() => [])
   if (!names.length) {
-    status.textContent = 'no recordings: the replay reads them through the preview server, started with a directory of them (server.js <port> <directory>)'
+    status.textContent = 'no recordings: put them in public/recordings, or start the server with a directory of them (server.js <port> <directory>)'
     return
   }
   for (const name of names) ui.recording.add(new window.Option(name, name))

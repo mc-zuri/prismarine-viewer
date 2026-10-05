@@ -1,18 +1,18 @@
 // Serves the preview pages beside the viewer's assets (public/ of the repository, built by npm install), and the
-// recordings the replay page plays.
+// recordings the replay page plays: those of public/recordings, and of a directory.
 //
 //   node examples/bedrock_preview/server.js [port] [recordings directory]
 //   http://localhost:3000/blocks.html, http://localhost:3000/entities.html, http://localhost:3000/items.html,
 //   http://localhost:3000/replay.html
 //
-// The recordings directory (or $RECORDINGS) holds .proxy.bin recordings of a Bedrock client's packets, each folder
-// with the world.json of the world they were made in; reading them takes bedrock-protocol (npm install
-// bedrock-protocol).
+// The recordings directory (or $RECORDINGS) holds .proxy.bin recordings of a Bedrock client's packets (or .proxy.bin.gz),
+// each folder with the world.json of the world they were made in. The server sends them as they are, as a static copy
+// of the pages has them: the page reads them (replay-worker.js).
 const fs = require('fs')
 const path = require('path')
 const express = require('express')
 const compression = require('compression')
-const { readRecording, listRecordings } = require('./recording')
+const { listRecordings } = require('./recording')
 const { checkExport, bedrockExport } = require('./itemCheck')
 
 const port = Number(process.argv[2] ?? process.env.PORT ?? 3000)
@@ -42,17 +42,9 @@ app.get('/bedrock-items-check.json', (req, res) => {
   checkExport(null, bedrockExport(bedrockData)).then(results => res.json(results), err => res.status(500).json({ error: err.message }))
 })
 
-app.get('/recordings', (req, res) => res.json(listRecordings(recordings)))
-const decoded = new Map()
-app.get('/recording', (req, res) => {
-  const name = String(req.query.name ?? '')
-  if (!recordings || !listRecordings(recordings).includes(name)) return res.status(404).json({ error: 'no such recording' })
-  try {
-    if (!decoded.has(name)) decoded.set(name, readRecording(path.join(recordings, name)))
-    res.json(decoded.get(name))
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
+// the recordings: of public/recordings (what build-site.js lists), and of the directory, served under recordings/ as
+// they are (express.static above sends public's)
+app.get('/recordings/index.json', (req, res) => res.json([...new Set([...listRecordings(path.join(__dirname, 'public/recordings')), ...listRecordings(recordings)])].sort()))
+if (recordings) app.use('/recordings', express.static(recordings))
 
 app.listen(port, () => console.log(`Bedrock preview on http://localhost:${port}/` + (recordings ? `, recordings of ${recordings}` : '')))

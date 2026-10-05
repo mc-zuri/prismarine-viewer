@@ -43,12 +43,17 @@ jobs:
           fork minecraft-data minecraft-data-node minecraft-data minecraft-data
           fork minecraft-assets node-minecraft-assets minecraft-assets minecraft-assets
           (cd node_modules/minecraft-data && npm run generate:data)
-      # (the install scripts held back above; then the viewer's assets, of the Bedrock versions only, and its bundles)
+      # (the install scripts held back above; then the viewer's assets, of the Bedrock versions only, and its bundles.
+      # npm rebuild already runs the viewer's prepare, through its devDependency on itself: prepare then finds the
+      # versions built)
       - name: Build the viewer
         run: npm rebuild && npm run prepare
         env:
           PRISMARINE_VIEWER_VERSIONS: bedrock
           PUPPETEER_SKIP_DOWNLOAD: 'true'
+          # (raknet-native, of bedrock-protocol, which the gameplay page bundles without: no build when its prebuilt
+          # binary does not load)
+          SKIP_BUILD: '1'
       - name: Build the pages
         run: npx webpack -c examples/bedrock_preview/webpack.config.js
       - name: Write the site

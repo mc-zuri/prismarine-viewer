@@ -136,9 +136,10 @@ describe('attachables', () => {
     const shield = [...entry.model.layers.values()][0].skeleton.bones.get('shield')
     const hand = zombie.findBone('rightitem')
     expect(shield.group.parent).toBe(hand.group)
-    // where the hand is, the animation's offset on it (x mirrored)
-    expect(shield.restPosition.toArray()).toEqual([0, 0, 0])
-    expect(shield.group.position.toArray().map(v => Math.round(v * 10) / 10)).toEqual([0.4, 9, 9.3])
+    // from the hand as its geometry places it (pivot [1, 15.5, 3], x mirrored), 24 lower, as the game places a bound
+    // bone; the animation's offset on that (x mirrored), which brings its handle into the hand
+    expect(shield.restPosition.toArray()).toEqual([-1, -8.5, 3])
+    expect(shield.group.position.toArray().map(v => Math.round(v * 10) / 10)).toEqual([-0.6, 0.5, 12.3])
   })
 
   test('an item without an attachable is its icon in the hand', () => {

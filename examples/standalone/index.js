@@ -1,11 +1,13 @@
 /* global THREE, fetch */
 const { WorldView, Viewer, MapControls } = require('prismarine-viewer/viewer')
+const { preload } = require('prismarine-viewer/viewer/lib/mcData')
 const { Vec3 } = require('vec3')
 const { Schematic } = require('prismarine-schematic')
 global.THREE = require('three')
 
 async function main () {
   const version = '1.16.4'
+  await preload(version)
   const data = await fetch('smallhouse1.schem').then(r => r.arrayBuffer())
   const schem = await Schematic.read(Buffer.from(data), version)
 

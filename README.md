@@ -13,7 +13,9 @@ Web based viewer for servers and bots
 
 [<img src="https://prismarinejs.github.io/prismarine-viewer/test_1.18.1.png" alt="viewer" width="300">](https://prismarinejs.github.io/prismarine-viewer/)
 
-Supports versions 1.8.8, 1.9.4, 1.10.2, 1.11.2, 1.12.2, 1.13.2, 1.14.4, 1.15.2, 1.16.1, 1.16.4, 1.17.1, 1.18.1, 1.19, 1.20.1, 1.21.1, 1.21.4. Other versions of the same major (e.g. 1.21.8) render with the textures and models of the closest supported one.
+Supports versions 1.8.8, 1.9.4, 1.10.2, 1.11.2, 1.12.2, 1.13.2, 1.14.4, 1.15.2, 1.16.1, 1.16.4, 1.17.1, 1.18.1, 1.19, 1.20.1, 1.21.1, 1.21.4, 26.1. Other versions of the same major (e.g. 1.21.8) render with the textures and models of the closest supported one.
+
+Bedrock Edition worlds render too, from 1.16.201 to 1.26.51, where minecraft-assets has the version's Bedrock assets. Bedrock versions are named with their edition prefix (`bedrock_1.26.51`); a Bedrock bot's version is turned into one by the viewer. A patch newer than the assets know renders with the newest version before it of the same major. Their entities are the game's client entities, with the particle effects of the game's resource packs: those the entities start (a blaze's flames, an evoker's spell) and those the server spawns.
 
 ## Install
 
@@ -58,6 +60,8 @@ More examples:
 * Create a fully front end viewer with an in memory world [example](https://github.com/PrismarineJS/prismarine-viewer/blob/master/examples/standalone)
 * A minecraft web client example, using mineflayer and a websocket proxy [example](https://github.com/PrismarineJS/prismarine-viewer/blob/master/examples/web_client)
 * Export parts of worlds as screenshot or 3d models [example](https://github.com/PrismarineJS/prismarine-viewer/blob/master/examples/exporter)
+* Visualize a Bedrock world saved on disk [example](https://github.com/PrismarineJS/prismarine-viewer/blob/master/examples/bedrock_world.js)
+* Preview a Bedrock world of several biomes with its entities moving about, every block state, entity and particle effect of a Bedrock version, and water and plants by biome [example](https://github.com/PrismarineJS/prismarine-viewer/blob/master/examples/bedrock_preview)
 
 ## Projects using prismarine-viewer
 
@@ -90,6 +94,16 @@ Players are rendered with their skin, wide or slim, and cape when the server sen
 
 [example](https://github.com/PrismarineJS/prismarine-viewer/blob/master/examples/bot.js)
 
+#### trackBedrock (bot)
+
+For a Bedrock bot, keeps what its client is told that mineflayer does not keep and the viewer draws entities with: the entity properties (a cow's climate variant, a bee's nectar) and the players' skins. Much of it is sent once, at login (the property definitions, the skins of the players already there), so call it right after creating the bot; `mineflayer` and `headless` call it themselves when they start, and know what comes from then on. Nothing for a Java bot.
+
+```js
+const { trackBedrock } = require('prismarine-viewer')
+const bot = mineflayer.createBot({ ... })
+trackBedrock(bot)
+```
+
 #### standalone
 
 Serve a webserver allowing to visualize a world.
@@ -99,11 +113,12 @@ const { standalone } = require('prismarine-viewer')
 ```
 
 Options:
-* `version` the version to use, default: `1.13.2`
-* `generator` a world generator function, default: `(x, y, z) => 0`
+* `version` the version to use: `1.21.4`, or a Bedrock version (`bedrock_1.26.51`)
+* `world` the world to show: an object whose `getColumn(x, z)` gives (or resolves to) the prismarine-chunk column at chunk x, z
 * `center` a vec3 to center the view on, default: `new Vec3(0, 0, 0)`
-* `viewDistance` view radius, in chunks, default: `6`
+* `viewDistance` view radius, in chunks, default: `4`
 * `port` the port for the webserver, default: `3000`
+* `worldOptions` what the version alone does not say of the world, default: `{}`. For Bedrock, `blockHashes`: whether its state ids are block network hashes (as a server started with them sends them) rather than indexes. When not given, the first column tells.
 
 [example](https://github.com/PrismarineJS/prismarine-viewer/blob/master/examples/standalone.js)
 
@@ -140,6 +155,12 @@ Remove the primitive with the given id from the display.
 
 Stop the server and disconnect users.
 
+## Bundling the viewer
+
+The viewer's worker reads minecraft-data to hold the world it draws. `public/worker.js` holds none of it: the files of a version are JSON files in `public/mc-data/`, fetched when a world of that version is first shown, so they must be served beside `worker.js`. A page that bundles minecraft-data itself can do the same with `viewer/webpack/lazyMinecraftData.js` (see the [standalone example](https://github.com/PrismarineJS/prismarine-viewer/blob/master/examples/standalone/webpack.config.js) and the [viewer API](viewer/README.md)).
+
 ## Tests
 
-`npm run jestTest -- -t "1.9.4"`
+`npm run jestTest -- -t "1.9.4"` runs the tests of one version against a Minecraft server.
+
+`npm run jestTest -- --testPathIgnorePatterns test/viewer.test.js test/simple.test.js` runs those that need no server, after the build (`npm install`).

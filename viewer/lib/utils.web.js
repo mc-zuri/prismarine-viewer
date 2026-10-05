@@ -1,4 +1,4 @@
-/* global XMLHttpRequest, document */
+/* global XMLHttpRequest, document, Image */
 const THREE = require('three')
 
 const textureCache = {}
@@ -26,7 +26,8 @@ function loadPixels (texture, cb) {
   pixelCache[texture].then(cb)
 }
 
-function loadJSON (url, callback) {
+// onError: called instead of throwing when the file cannot be had
+function loadJSON (url, callback, onError) {
   const xhr = new XMLHttpRequest()
   xhr.open('GET', url, true)
   xhr.responseType = 'json'
@@ -34,11 +35,22 @@ function loadJSON (url, callback) {
     const status = xhr.status
     if (status === 200) {
       callback(xhr.response)
+    } else if (onError) {
+      onError(new Error(url + ' not found'))
     } else {
       throw new Error(url + ' not found')
     }
   }
+  if (onError) xhr.onerror = () => onError(new Error(url + ' not found'))
   xhr.send()
 }
 
-module.exports = { loadTexture, loadPixels, loadJSON }
+// the image itself, for code that makes its own textures of it
+function loadImage (url, onLoad, onError) {
+  const image = new Image()
+  image.onload = () => onLoad(image)
+  image.onerror = () => onError(new Error(url + ' not found'))
+  image.src = url
+}
+
+module.exports = { loadTexture, loadPixels, loadJSON, loadImage }

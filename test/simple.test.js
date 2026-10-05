@@ -7,6 +7,6 @@ describe('Google', () => {
   }, 20000)
 
   it('should display "google" text on page', async () => {
-    await expect(page).toMatch('google')
+    await expect(page).toMatchTextContent('google')
   }, 20000)
 })

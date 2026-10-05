@@ -13,6 +13,7 @@ if (!global.self) {
 const { Vec3 } = require('vec3')
 const { World } = require('./world')
 const { getSectionGeometry } = require('./models')
+const { preload } = require('./mcData')
 
 let blocksStates = null
 let world = null
@@ -27,7 +28,8 @@ function setSectionDirty (pos, value = true) {
   const x = Math.floor(pos.x / 16) * 16
   const y = Math.floor(pos.y / 16) * 16
   const z = Math.floor(pos.z / 16) * 16
-  const chunk = world.getColumn(x, z)
+  // no world when its version could not be loaded: the section is still answered for
+  const chunk = world?.getColumn(x, z)
   const key = sectionKey(x, y, z)
   if (!value) {
     delete dirtySections[key]
@@ -39,25 +41,44 @@ function setSectionDirty (pos, value = true) {
   }
 }
 
-self.onmessage = ({ data }) => {
+async function handle (data) {
   if (data.type === 'version') {
-    world = new World(data.version)
+    world = null
+    // a bundle may have to fetch the minecraft-data of the version first (see mcData.js)
+    await preload(data.version)
+    world = new World(data.version, data.options)
+    world.setRender(blocksStates?.__bedrock?.blocks)
   } else if (data.type === 'blockStates') {
     blocksStates = data.json
+    world?.setRender(blocksStates.__bedrock?.blocks)
   } else if (data.type === 'dirty') {
     const loc = new Vec3(data.x, data.y, data.z)
     setSectionDirty(loc, data.value)
+  } else if (data.type === 'reset') {
+    world = null
+    blocksStates = null
+  } else if (world === null) {
+    // its version could not be loaded: nothing to apply these to
   } else if (data.type === 'chunk') {
     world.addColumn(data.x, data.z, data.chunk)
   } else if (data.type === 'unloadChunk') {
     world.removeColumn(data.x, data.z)
   } else if (data.type === 'blockUpdate') {
     const loc = new Vec3(data.pos.x, data.pos.y, data.pos.z).floored()
-    world.setBlockStateId(loc, data.stateId)
-  } else if (data.type === 'reset') {
-    world = null
-    blocksStates = null
+    world.setBlockStateId(loc, data.stateId, data.layer)
+  } else if (data.type === 'blockEntity') {
+    const loc = new Vec3(data.pos.x, data.pos.y, data.pos.z).floored()
+    world.setBlockEntity(loc, data.tag)
   }
+}
+
+// Messages are handled in the order they came, each once the one before is done: the chunks sent while a version
+// loads wait for its world.
+let queue = Promise.resolve()
+self.onmessage = ({ data }) => {
+  queue = queue.then(() => handle(data)).catch(err => {
+    postMessage({ type: 'error', message: `${data.type}: ${err?.stack ?? err}` })
+  })
 }
 
 setInterval(() => {
@@ -77,7 +98,7 @@ setInterval(() => {
     if (chunk && chunk.sections[(y - (chunk.minY ?? 0)) / 16]) {
       delete dirtySections[key]
       const geometry = getSectionGeometry(x, y, z, world, blocksStates)
-      const transferable = [geometry.positions.buffer, geometry.normals.buffer, geometry.colors.buffer, geometry.uvs.buffer, geometry.animations.buffer]
+      const transferable = [geometry.positions.buffer, geometry.normals.buffer, geometry.colors.buffer, geometry.uvs.buffer, geometry.animations.buffer, geometry.indices.buffer]
       postMessage({ type: 'geometry', key, geometry }, transferable)
     }
     postMessage({ type: 'sectionFinished', key })

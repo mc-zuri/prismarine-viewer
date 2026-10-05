@@ -4,5 +4,9 @@ module.exports = {
   MapControls: require('./lib/controls').MapControls,
   Entity: require('./lib/entity/Entity'),
   getBufferFromStream: require('./lib/simpleUtils').getBufferFromStream,
-  supportedVersions: require('./lib/version').supportedVersions
+  supportedVersions: require('./lib/version').supportedVersions,
+  bedrockSupportedVersions: require('./lib/version').bedrockSupportedVersions,
+  viewerVersion: require('./lib/version').viewerVersion,
+  viewerWorldOptions: require('./lib/version').viewerWorldOptions,
+  trackBedrock: require('./lib/bedrockTracker').trackBedrock
 }

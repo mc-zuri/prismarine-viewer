@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Bedrock items</title>
+    <style>
+      :root { --cell: 48px; --slot: #8b8b8b; }
+      html, body { margin: 0; font-family: sans-serif; font-size: 14px; background: #1d2228; color: #e8e8e8; }
+      a { color: #8cc8ff; }
+      #bar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 8px 10px; background: rgba(20, 24, 28, 0.95); }
+      #bar label { display: flex; gap: 4px; align-items: center; }
+      #filter { width: 16em; }
+      #status { flex-basis: 100%; color: #c8d0d8; }
+      #grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; }
+      .cell { width: calc(var(--cell) + 36px); display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 2px; border: 2px solid transparent; border-radius: 4px; cursor: pointer; }
+      .cell:hover { border-color: #5a6470; }
+      .cell.chosen { border-color: #8cc8ff; }
+      .cell canvas { width: var(--cell); height: var(--cell); background: var(--slot); image-rendering: pixelated; }
+      .cell .name { width: 100%; font-size: 11px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #c8d0d8; }
+      .cell .flag { font-size: 10px; padding: 0 4px; border-radius: 3px; color: #111; }
+      .cell.bad { border-color: #d04040; }
+      .cell.check { border-color: #d0a030; }
+      .flag.bad { background: #e06060; }
+      .flag.check { background: #e0b040; }
+      .flag.coloured { background: #70c070; }
+      body.checker .cell canvas { background: repeating-conic-gradient(#999 0% 25%, #666 0% 50%) 0 0 / 12px 12px; }
+      #info { position: fixed; right: 10px; bottom: 10px; z-index: 3; max-width: 46%; max-height: 60%; overflow: auto; padding: 8px 10px; background: rgba(20, 24, 28, 0.95); border: 1px solid #3a4450; white-space: pre-wrap; font-family: monospace; font-size: 12px; }
+      #info:empty, #report:empty { display: none; }
+      #info canvas { width: 128px; height: 128px; image-rendering: pixelated; background: var(--slot); float: right; margin-left: 10px; }
+      #report { margin: 10px; padding: 8px; background: #252b33; border: 1px solid #3a4450; }
+      #report table { border-collapse: collapse; font-size: 12px; }
+      #report td, #report th { padding: 2px 8px; border-bottom: 1px solid #333b45; text-align: right; }
+      #report td:first-child, #report td.names { text-align: left; }
+      #report tr { cursor: pointer; }
+      #report tr:hover { background: #313944; }
+      #report .bad { color: #ff8080; font-weight: bold; }
+      #report .check { color: #f0c060; }
+      #report td.names { max-width: 50em; color: #b0b8c0; }
+    </style>
+  </head>
+  <body>
+    <div id="bar">
+      <a href="index.html">Bedrock preview</a>
+      <label>Version <select id="version"></select></label>
+      <label title="words of the item's name or of its textures' names: all must match">Filter <input id="filter" type="text" placeholder="e.g. leather"></label>
+      <label>Show <select id="show">
+        <option value="all">every icon</option>
+        <option value="problems">problems</option>
+        <option value="coloured">coloured (overlay, dye)</option>
+        <option value="variants">items with aux variants</option>
+        <option value="grey">grey block icons</option>
+      </select></label>
+      <label>Size <select id="size">
+        <option>32</option>
+        <option selected>48</option>
+        <option>64</option>
+        <option>96</option>
+      </select></label>
+      <label>Behind <select id="background">
+        <option value="#8b8b8b">inventory slot</option>
+        <option value="#2b2b2b">dark</option>
+        <option value="#f0f0f0">light</option>
+        <option value="checker">checks</option>
+      </select></label>
+      <button id="check" title="checks the items of every version minecraft-assets has">check every version</button>
+      <span id="status"></span>
+    </div>
+    <div id="report"></div>
+    <div id="grid"></div>
+    <div id="info"></div>
+    <script src="items.js"></script>
+  </body>
+</html>

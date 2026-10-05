@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Bedrock particles</title>
+    <style>
+      html, body { height: 100%; margin: 0; overflow: hidden; font-family: sans-serif; font-size: 13px; }
+      #bar { position: absolute; top: 0; left: 0; right: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 8px 10px; background: rgba(20, 24, 28, 0.9); color: #e8e8e8; }
+      #bar label { display: flex; gap: 4px; align-items: center; }
+      #bar button { padding: 1px 8px; }
+      .group { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-left: 10px; border-left: 1px solid #556; }
+      .group:first-child { padding-left: 0; border-left: none; }
+      #view { position: absolute; inset: 0; }
+      #list { position: absolute; top: 44px; left: 0; bottom: 0; z-index: 1; width: 290px; overflow: auto; background: rgba(20, 24, 28, 0.85); color: #e8e8e8; }
+      #list label { display: flex; gap: 6px; align-items: baseline; padding: 2px 8px; cursor: pointer; }
+      #list label:hover { background: rgba(140, 200, 255, 0.15); }
+      #list label.hidden { display: none; }
+      #list .kind { margin-left: auto; color: #9aa7b4; font-size: 11px; white-space: nowrap; }
+      #list .kind.unsupported { color: #ffb070; }
+      #info { position: absolute; left: 300px; bottom: 10px; z-index: 1; max-width: calc(100% - 330px); max-height: 35%; overflow: auto; padding: 6px 10px; background: rgba(20, 24, 28, 0.85); color: #e8e8e8; white-space: pre-wrap; font-family: monospace; }
+      #info:empty { display: none; }
+      a { color: #8cc8ff; }
+    </style>
+  </head>
+  <body>
+    <div id="bar">
+      <div class="group">
+        <a href="index.html">Bedrock preview</a>
+        <label>Version <select id="version"></select></label>
+        <span id="status"></span>
+      </div>
+      <div class="group">
+        <label>Filter <input id="filter" type="search" placeholder="names: flame smoke" size="16" title="effects whose identifier has any of these words"></label>
+        <button id="playShown" title="play every effect the filter shows">Play shown</button>
+        <button id="none" title="play none">None</button>
+        <label title="their names over them"><input type="checkbox" id="names" checked> names</label>
+        <label title="their particles land on the ground (motion collision)"><input type="checkbox" id="ground" checked> ground</label>
+      </div>
+    </div>
+    <div id="view"></div>
+    <div id="list"></div>
+    <div id="info"></div>
+    <script src="particles.js"></script>
+  </body>
+</html>

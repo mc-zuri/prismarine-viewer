@@ -97,3 +97,33 @@ describe('dropped items', () => {
     expect(entities.items[1]).toBeUndefined()
   })
 })
+
+describe('dropped Bedrock items', () => {
+  const { getItemMesh } = require('../viewer/lib/entity/Item')
+  const textures = {
+    items: { leather_helmet: { texture: 'items/leather_helmet', tint: { base: '#a06540' } }, apple: { texture: 'items/apple' } },
+    textureUrl: p => `textures/bedrock/${p.replace(/\//g, '_')}.png`
+  }
+  const fallback = () => new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial({ color: 0xff00ff }))
+
+  it('a dyed item is drawn in its colour, of a texture of its own that it frees', async () => {
+    mockTextureLoads.length = 0
+    const group = getItemMesh('leather_helmet', 'bedrock_1.26.51', fallback, { textures })
+    await flush()
+    // (no shared texture is loaded: its pixels, white, are coloured)
+    expect(mockTextureLoads).toHaveLength(0)
+    const mesh = group.item.pivot.children[0]
+    expect(mesh.material.map).toBeInstanceOf(THREE.DataTexture)
+    expect([...mesh.material.map.image.data]).toEqual([160, 101, 64, 255])
+    const mapDispose = jest.spyOn(mesh.material.map, 'dispose')
+    group.dispose()
+    expect(mapDispose).toHaveBeenCalled()
+  })
+
+  it('an item drawn as it is takes the shared texture', async () => {
+    mockTextureLoads.length = 0
+    getItemMesh('apple', 'bedrock_1.26.51', fallback, { textures })
+    await flush()
+    expect(mockTextureLoads).toHaveLength(1)
+  })
+})

@@ -66,7 +66,9 @@ class WorldRenderer {
           geometry.setAttribute('color', new THREE.BufferAttribute(data.geometry.colors, 3))
           geometry.setAttribute('uv', new THREE.BufferAttribute(data.geometry.uvs, 2))
           geometry.setAttribute('animation', new THREE.BufferAttribute(data.geometry.animations, 3))
-          geometry.setIndex(data.geometry.indices)
+          // typed indices (transferred by the worker): setIndex wraps only plain arrays itself
+          const indices = data.geometry.indices
+          geometry.setIndex(ArrayBuffer.isView(indices) ? new THREE.BufferAttribute(indices, 1) : indices)
 
           mesh = new THREE.Mesh(geometry, this.material)
           mesh.position.set(data.geometry.sx, data.geometry.sy, data.geometry.sz)
@@ -75,6 +77,8 @@ class WorldRenderer {
         } else if (data.type === 'sectionFinished') {
           this.sectionsOutstanding.delete(data.key)
           this.renderUpdateEmitter.emit('update')
+        } else if (data.type === 'error') {
+          console.error('viewer worker: ' + data.message)
         }
       }
       if (worker.on) worker.on('message', (data) => { worker.onmessage({ data }) })
@@ -93,7 +97,8 @@ class WorldRenderer {
     }
   }
 
-  setVersion (version, assetsVersion = version) {
+  // options: what the world's version alone does not say (Bedrock: blockHashes, see world.js)
+  setVersion (version, assetsVersion = version, options = {}) {
     this.version = version
     this.assetsVersion = assetsVersion
     // Counter rather than a boundsReady comparison: loadJSON may call back
@@ -106,19 +111,21 @@ class WorldRenderer {
         // worldBounds.json only has entries for supportedVersions, while
         // version is the server's exact version, so fall back to the snapped
         // assets version (same major, hence same bounds) when it is absent.
-        const { minY = 0, worldHeight = 256 } = bounds[version] ?? bounds[assetsVersion] ?? {}
+        // files (Bedrock): the version whose textures and blocksStates it is
+        // drawn with, when it has none built of its own.
+        const { minY = 0, worldHeight = 256, files } = bounds[version] ?? bounds[assetsVersion] ?? {}
         this.minY = minY
         this.worldHeight = worldHeight
+        if (files) this.assetsVersion = files
+        this.updateTexturesData()
         resolve()
       })
     })
     this.resetWorld()
     this.active = true
     for (const worker of this.workers) {
-      worker.postMessage({ type: 'version', version })
+      worker.postMessage({ type: 'version', version, options })
     }
-
-    this.updateTexturesData()
   }
 
   updateTexturesData () {
@@ -193,10 +200,24 @@ class WorldRenderer {
     })
   }
 
-  setBlockStateId (pos, stateId) {
+  // layer (Bedrock): 0 the block, 1 the liquid in it
+  setBlockStateId (pos, stateId, layer = 0) {
     for (const worker of this.workers) {
-      worker.postMessage({ type: 'blockUpdate', pos, stateId })
+      worker.postMessage({ type: 'blockUpdate', pos, stateId, layer })
     }
+    this.setBlockDirty(pos)
+  }
+
+  // the block entity at pos changed (a bed's colour): tag its NBT, or none when it is gone
+  setBlockEntity (pos, tag) {
+    for (const worker of this.workers) {
+      worker.postMessage({ type: 'blockEntity', pos, tag })
+    }
+    this.setBlockDirty(pos)
+  }
+
+  // the section of a changed block, and those beside it that it touches
+  setBlockDirty (pos) {
     this.setSectionDirty(pos)
     if ((pos.x & 15) === 0) this.setSectionDirty(pos.offset(-16, 0, 0))
     if ((pos.x & 15) === 15) this.setSectionDirty(pos.offset(16, 0, 0))

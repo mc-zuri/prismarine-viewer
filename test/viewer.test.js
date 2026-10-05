@@ -75,7 +75,8 @@ supportedVersions.forEach(function (supportedVersion) {
       it('starts the viewer', function (done) {
         const mineflayer = require('mineflayer')
         const mineflayerViewer = require('../').mineflayer
-        setTimeout(() => done(new Error('too slow !!!')), TIMEOUT)
+        // (cleared when the test ends: else it fails a later version's test when all run in one process)
+        const slow = setTimeout(() => done(new Error('too slow !!!')), TIMEOUT)
 
         const bot = mineflayer.createBot({
           username: 'Bot',
@@ -87,6 +88,7 @@ supportedVersions.forEach(function (supportedVersion) {
           mineflayerViewer(bot, { port: 3000 })
 
           function exit (err) {
+            clearTimeout(slow)
             bot.viewer.close()
             bot.end()
             done(err)

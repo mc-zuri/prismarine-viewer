@@ -51,8 +51,12 @@ function readAnimation (basePath, name, img) {
 // u/v/su/sv extents, and an animated entry additionally carries its frame
 // count, frame time and per-frame UV step, since that step now varies per
 // texture rather than being uniform across the atlas.
-function makeTextureAtlas (mcAssets) {
-  const blocksTexturePath = path.join(mcAssets.directory, '/blocks')
+//
+// translucent: texture name -> the opacity its pixels are drawn with (Bedrock's water, which the game makes see-through
+// by the biome rather than by its pixels)
+function makeTextureAtlas (mcAssets, { translucent = {} } = {}) {
+  // (a version may keep its textures with another's: see minecraft-assets' pathOf)
+  const blocksTexturePath = mcAssets.pathOf ? mcAssets.pathOf('blocks') : path.join(mcAssets.directory, '/blocks')
   const textureFiles = fs.readdirSync(blocksTexturePath).filter(file => file.endsWith('.png'))
   textureFiles.unshift('missing_texture.png')
 
@@ -108,6 +112,12 @@ function makeTextureAtlas (mcAssets) {
       g.drawImage(tile.img, 0, frame * tile.frameHeight, tile.w, tile.frameHeight,
         tile.x, tile.y + i * tile.frameHeight, tile.w, tile.frameHeight)
     })
+    const opacity = translucent[tile.name]
+    if (opacity !== undefined) {
+      const pixels = g.getImageData(tile.x, tile.y, tile.w, tile.h)
+      for (let i = 3; i < pixels.data.length; i += 4) pixels.data[i] = Math.round(pixels.data[i] * opacity)
+      g.putImageData(pixels, tile.x, tile.y)
+    }
   }
 
   return { image: canvas.toBuffer(), canvas, json: { width, height, textures: texturesIndex } }

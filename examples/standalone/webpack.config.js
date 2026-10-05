@@ -1,8 +1,11 @@
 const webpack = require('webpack')
 const path = require('path')
 const CopyPlugin = require('copy-webpack-plugin')
+const { lazyMinecraftData } = require('prismarine-viewer/viewer/webpack/lazyMinecraftData')
 
-const config = {
+// The page builds its world with minecraft-data too: of its version only, fetched as the viewer's worker does
+// (index.js awaits preload). Its files are the worker's, in mc-data/.
+const config = lazyMinecraftData({
   mode: 'production',
   entry: path.resolve(__dirname, './index.js'),
   output: {
@@ -10,6 +13,8 @@ const config = {
     filename: './index.js'
   },
   resolve: {
+    // one minecraft-data for the page and the linked viewer, so that the one preload loads is the one read
+    alias: { 'minecraft-data': path.dirname(require.resolve('minecraft-data/package.json')) },
     fallback: {
       zlib: require.resolve('browserify-zlib'),
       stream: require.resolve('stream-browserify'),
@@ -35,6 +40,7 @@ const config = {
         { from: '../../public/blocksStates/', to: './blocksStates/' },
         { from: '../../public/textures/*.png', to: './textures/' },
         { from: '../../public/worker.js', to: './' },
+        { from: '../../public/worldBounds.json', to: './' }
       ]
     })
   ],
@@ -47,21 +53,7 @@ const config = {
     watchOptions: {
       ignored: /node_modules/
     }
-  },
-  externals: [
-    // This removes some large unnecessary data from the bundle
-    function (req, cb) {
-      if (req.context.includes('minecraft-data') && req.request.endsWith('.json')) {
-         const fileName = req.request.split('/').pop().replace('.json', '')
-        const blocked = ['blocksB2J', 'blocksJ2B', 'blockMappings', 'steve', 'recipes']
-        if (blocked.includes(fileName)) {
-          cb(null, [])
-          return
-        }
-      }
-      cb()
-    }
-  ]
-}
+  }
+})
 
 module.exports = config

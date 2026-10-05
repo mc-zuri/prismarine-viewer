@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Bedrock entities</title>
+    <style>
+      html, body { height: 100%; margin: 0; overflow: hidden; font-family: sans-serif; font-size: 13px; }
+      #bar { position: absolute; top: 0; left: 0; right: 0; z-index: 1; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; background: rgba(20, 24, 28, 0.85); color: #e8e8e8; }
+      .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+      #bar label { display: flex; gap: 4px; align-items: center; }
+      #bar input[type=number] { width: 3.5em; }
+      #bar button { padding: 1px 8px; }
+      .group { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-left: 10px; border-left: 1px solid #556; }
+      .group:first-child { padding-left: 0; border-left: none; }
+      #view { position: absolute; inset: 0; }
+      #info { position: absolute; left: 10px; bottom: 10px; z-index: 1; max-width: 55%; max-height: 40%; overflow: auto; padding: 6px 10px; background: rgba(20, 24, 28, 0.85); color: #e8e8e8; white-space: pre-wrap; font-family: monospace; }
+      #info:empty { display: none; }
+      #legend { position: absolute; right: 10px; bottom: 10px; z-index: 1; max-width: 40%; max-height: 50%; overflow: auto; padding: 6px 10px; background: rgba(20, 24, 28, 0.85); color: #e8e8e8; }
+      #legend table { border-collapse: collapse; }
+      #legend td { padding: 1px 6px; vertical-align: top; }
+      #legend code { color: #ffd479; }
+      #focused { display: none; }
+      body.focused #focused { display: flex; }
+      a { color: #8cc8ff; }
+    </style>
+  </head>
+  <body>
+    <div id="bar">
+      <div class="row">
+        <div class="group">
+          <a href="index.html">Bedrock preview</a>
+          <label>Version <select id="version"></select></label>
+          <span id="status"></span>
+        </div>
+        <div class="group">
+          <label>Filter <input id="filter" type="search" placeholder="names: cat wolf" size="14" title="entities whose name has any of these words"></label>
+          <label>Focus <select id="focus"></select></label>
+          <button id="overview" title="back to the whole grid">Overview</button>
+          <label title="their names, over those near the camera"><input type="checkbox" id="names" checked> names</label>
+        </div>
+        <div class="group">
+          <span>Apply to</span>
+          <label><input type="radio" name="scope" value="all" checked> all</label>
+          <label><input type="radio" name="scope" value="focused" id="scopeFocused"> focused only</label>
+        </div>
+      </div>
+      <div class="row">
+        <div class="group">
+          <label title="a pose or a movement: see the legend for what each sets">Mode <select id="mode"></select></label>
+          <label title="flags.baby: query.is_baby (scale, baby geometry and textures)"><input type="checkbox" data-flag="baby"> baby</label>
+          <label title="inWater: query.is_in_water (fish swim upright, squids beat their tentacles)"><input type="checkbox" id="inWater"> in water</label>
+          <label title="flags.action: query.is_using_item (a bow drawn, a trident raised, a shield up)"><input type="checkbox" data-flag="action"> using item</label>
+        </div>
+        <div class="group">
+          <span title="equipment: an item with an attachable (armour, a shield, a trident) is drawn by it, its bones on the wearer's; another held item as its icon in the hand">Holds</span>
+          <label>main <select id="mainhand" data-slot="mainhand"></select></label>
+          <label>off <select id="offhand" data-slot="offhand"></select></label>
+          <span>Wears</span>
+          <select id="head" data-slot="head" title="equipment.head"></select>
+          <select id="chest" data-slot="chest" title="equipment.chest"></select>
+          <select id="legs" data-slot="legs" title="equipment.legs"></select>
+          <select id="feet" data-slot="feet" title="equipment.feet"></select>
+        </div>
+        <div class="group">
+          <label title="flags.sheared"><input type="checkbox" data-flag="sheared"> sheared</label>
+          <label title="flags.saddled"><input type="checkbox" data-flag="saddled"> saddled</label>
+          <label title="flags.chested"><input type="checkbox" data-flag="chested"> chested</label>
+          <label title="flags.tamed"><input type="checkbox" data-flag="tamed"> tamed</label>
+          <label title="flags.angry"><input type="checkbox" data-flag="angry"> angry</label>
+          <label title="flags.powered: query.is_powered (a charged creeper's aura)"><input type="checkbox" data-flag="powered"> powered</label>
+          <label title="flags.charged: query.is_charged (a ghast shooting, a blaze burning)"><input type="checkbox" data-flag="charged"> charged</label>
+          <label title="flags.evoker_spell: query.is_casting (an evoker casting its spell)"><input type="checkbox" data-flag="evoker_spell"> casting</label>
+          <label title="flags.rearing: query.is_standing (a horse or a polar bear standing up)"><input type="checkbox" data-flag="rearing"> standing</label>
+          <label title="any other flags, comma separated (dancing, celebrating, roaring, sniffing, scared, playing_dead...)">Flags <input id="flags" size="14" placeholder="dancing, ..."></label>
+        </div>
+        <div class="group">
+          <label title="metadata.variant: query.variant">variant <input id="variant" type="number" min="0" value="0"></label>
+          <label title="metadata.mark_variant: query.mark_variant">mark <input id="mark_variant" type="number" min="0" value="0"></label>
+          <label title="metadata.color: query.color, the dye colour of wool and collars (0 white ... 15 black)">color <input id="color" type="number" min="0" max="15" value="0"></label>
+          <label title="properties['minecraft:climate_variant']: cows, pigs, chickens">climate <select id="climate"><option>temperate</option><option>warm</option><option>cold</option></select></label>
+        </div>
+      </div>
+      <div class="row">
+        <div class="group">
+          <span>Do</span>
+          <button data-event="arm_swing" title="event arm_swing: variable.attack_time runs 0 to 1 (an iron golem swings both arms)">attack</button>
+          <button data-event="hurt_animation" title="event hurt_animation: red for 10 ticks, query.hurt_time">hurt</button>
+          <button data-event="death_animation" title="event death_animation: tips over in 20 ticks, query.is_alive 0">die</button>
+          <button data-event="respawn" title="event respawn: alive again">revive</button>
+          <button data-event="eat_grass_animation" data-kinds="sheep" title="event eat_grass_animation: query.is_grazing for 40 ticks (a sheep)">graze</button>
+          <button data-event="shake_wet" data-kinds="wolf" title="event shake_wet: query.is_shaking_wetness for 2 seconds (a wolf)">shake</button>
+          <button data-event="iron_golem_offer_flower" data-kinds="iron_golem" title="event iron_golem_offer_flower: variable.offer_flower_tick for 20 seconds, a poppy in its raised hand (an iron golem)">offer flower</button>
+          <button data-event="jump" data-kinds="rabbit" title="event jump, and a hop half a block up over half a second (a rabbit: older ones by the event, newer ones by moving up)">jump</button>
+          <span id="eventNote"></span>
+        </div>
+        <div class="group">
+          <label title="the players' skin: the pack's Steve and Alex, or a skin image (64x64 or 64x32, as the game's), drawn wide (Steve) and slim (Alex)">Skin <select id="skin"><option value="">Steve / Alex</option><option value="custom">custom</option></select></label>
+          <input type="file" id="skinFile" accept="image/png">
+        </div>
+        <div class="group" id="focused">
+          <label title="the focused entity's animations and animation controllers, as the server plays them (animate_entity)">Animation <select id="animation"></select></label>
+          <button id="play">play</button>
+          <button id="stop">stop</button>
+          <span id="properties"></span>
+        </div>
+      </div>
+    </div>
+    <div id="view"></div>
+    <div id="info"></div>
+    <details id="legend">
+      <summary>What each mode sets</summary>
+      <table id="legendTable"></table>
+    </details>
+    <script src="entities.js"></script>
+  </body>
+</html>

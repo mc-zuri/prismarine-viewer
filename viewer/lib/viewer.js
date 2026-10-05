@@ -37,7 +37,9 @@ class Viewer {
     this.primitives.clear()
   }
 
-  setVersion (version) {
+  // version: '1.21.4', or a Bedrock one with its edition prefix ('bedrock_1.26.51')
+  // options: what the version alone does not say (Bedrock: blockHashes, see world.js)
+  setVersion (version, options = {}) {
     const assetsVersion = getVersion(version)
     if (assetsVersion === null) {
       const msg = `${version} is not supported`
@@ -47,7 +49,7 @@ class Viewer {
     }
     console.log(`Using version: ${version} (assets: ${assetsVersion})`)
     this.version = version
-    this.world.setVersion(version, assetsVersion)
+    this.world.setVersion(version, assetsVersion, options)
     this.entities.setVersion(assetsVersion)
     this.primitives.clear()
     return true
@@ -61,8 +63,12 @@ class Viewer {
     this.world.removeColumn(x, z)
   }
 
-  setBlockStateId (pos, stateId) {
-    this.world.setBlockStateId(pos, stateId)
+  setBlockStateId (pos, stateId, layer) {
+    this.world.setBlockStateId(pos, stateId, layer)
+  }
+
+  setBlockEntity (pos, tag) {
+    this.world.setBlockEntity(pos, tag)
   }
 
   updateEntity (e) {
@@ -71,6 +77,12 @@ class Viewer {
 
   updatePrimitive (p) {
     this.primitives.update(p)
+  }
+
+  // Bedrock: a particle effect of the version's packs by its identifier, at a position ({ x, y, z }); options: its
+  // variables (as the server gives them), direction
+  spawnParticle (name, position, options = {}) {
+    return this.entities.spawnParticle(name, position, options)
   }
 
   setFirstPersonCamera (pos, yaw, pitch) {
@@ -99,8 +111,16 @@ class Viewer {
       this.removeColumn(x, z)
     })
 
-    emitter.on('blockUpdate', ({ pos, stateId }) => {
-      this.setBlockStateId(new Vec3(pos.x, pos.y, pos.z), stateId)
+    emitter.on('blockUpdate', ({ pos, stateId, layer }) => {
+      this.setBlockStateId(new Vec3(pos.x, pos.y, pos.z), stateId, layer)
+    })
+
+    emitter.on('blockEntity', ({ pos, tag }) => {
+      this.setBlockEntity(new Vec3(pos.x, pos.y, pos.z), tag)
+    })
+
+    emitter.on('particle', ({ name, pos, variables }) => {
+      this.spawnParticle(name, pos, { variables })
     })
 
     this.domElement.addEventListener('pointerdown', (evt) => {
@@ -117,7 +137,7 @@ class Viewer {
   update () {
     TWEEN.update()
     this.world.update()
-    this.entities.animate()
+    this.entities.animate(this.camera)
   }
 
   async waitForChunksToRender () {

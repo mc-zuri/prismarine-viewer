@@ -1,5 +1,6 @@
 const THREE = require('three')
 const { loadTexture, loadPixels, loadJSON } = globalThis.isElectron ? require('../utils.electron.js') : require('../utils')
+const { itemIcon, isComposed, composeIcon } = require('../bedrock/itemIcon')
 
 // Ground display of the two item model parents: item/generated is the sprite at half scale extruded one
 // pixel deep, block/block is the block at quarter scale.
@@ -74,12 +75,40 @@ function spriteGeometry (pixels, size, depth) {
   return geometry
 }
 
+// A Java item's icon: the texture of its entry in the version's items_textures.json
+function javaIcon (version, texture) {
+  if (!texture || !/^(minecraft:)?(items|block)\//.test(texture)) return null
+  return { path: texturePath(version, texture), isBlock: /^(minecraft:)?block\//.test(texture) }
+}
+
+// A Bedrock item's icon: the texture its stack's aux value picks (a bed's colour, a potion's effect), else its own,
+// with its overlay and colours (a leather helmet's dye: bedrock/itemIcon.js); textures are named as items/bed_red,
+// blocks/wool_colored_red
+function bedrockIcon (assets, itemName, aux) {
+  const icon = itemIcon(assets.items, itemName, aux)
+  const path = icon && /^(items|blocks)\//.test(icon.texture) ? assets.textureUrl(icon.texture) : null
+  if (!path) return null
+  const composed = isComposed(icon) ? { overlay: icon.overlay ? assets.textureUrl(icon.overlay) : null, tint: icon.tint } : null
+  return { path, isBlock: icon.texture.startsWith('blocks/'), composed }
+}
+
+// a texture of RGBA pixels, rows from the top as an image's are drawn
+function pixelsTexture ({ width, height, data }) {
+  const rows = new Uint8Array(data.length)
+  for (let y = 0; y < height; y++) rows.set(data.subarray((height - 1 - y) * width * 4, (height - y) * width * 4), y * width * 4)
+  const map = new THREE.DataTexture(rows, width, height, THREE.RGBAFormat)
+  map.needsUpdate = true
+  return map
+}
+
 /**
  * A dropped item of `itemName`. The mesh stays empty until the version's texture index and the texture
  * have loaded; an item the index has no usable texture for gets `fallback()` instead. Disposing the group
  * frees what it created and drops any load still in flight.
+ * options, of a Bedrock version: { textures: its entity assets (bedrock/entity/assets.js), which have its items'
+ * icons, aux: the stack's aux value }
  */
-function getItemMesh (itemName, version, fallback) {
+function getItemMesh (itemName, version, fallback, options = {}) {
   const group = new THREE.Object3D()
   const pivot = new THREE.Object3D()
   group.add(pivot)
@@ -92,6 +121,7 @@ function getItemMesh (itemName, version, fallback) {
     // The map is shared through the texture cache, so only the geometry and material are ours.
     for (const mesh of owned) {
       mesh.geometry.dispose()
+      mesh.material.userData.ownMap?.dispose()
       mesh.material.dispose()
     }
   }
@@ -100,25 +130,41 @@ function getItemMesh (itemName, version, fallback) {
     parent.add(mesh)
   }
 
-  itemTextures(version).then(byName => {
+  const draw = icon => {
     if (disposed) return
-    const texture = byName[itemName]
-    if (!texture || !/^(minecraft:)?(items|block)\//.test(texture)) {
+    if (!icon) {
       attach(group, fallback())
       return
     }
-    const isBlock = /^(minecraft:)?block\//.test(texture)
+    const { path, isBlock, composed } = icon
     const size = isBlock ? BLOCK_SCALE : FLAT_SCALE
-    const path = texturePath(version, texture)
-    loadPixels(path, pixels => loadTexture(path, map => {
+    const show = (pixels, map) => {
       if (disposed) return
       map.magFilter = THREE.NearestFilter
       map.minFilter = THREE.NearestFilter
       const geometry = isBlock ? new THREE.BoxGeometry(size, size, size) : spriteGeometry(pixels, size, size * FLAT_DEPTH)
-      attach(pivot, new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ map, transparent: true, alphaTest: 0.1 })))
+      const material = new THREE.MeshLambertMaterial({ map, transparent: true, alphaTest: 0.1 })
+      // (a texture of its own, made of its pixels, is the mesh's to free)
+      if (composed) material.userData = { ownMap: map }
+      attach(pivot, new THREE.Mesh(geometry, material))
       group.item.size = size
-    }))
-  })
+    }
+    if (!composed) {
+      loadPixels(path, pixels => loadTexture(path, map => show(pixels, map)))
+      return
+    }
+    // its texture and overlay, coloured, made into one picture
+    loadPixels(path, base => {
+      const withOverlay = overlay => {
+        const pixels = composeIcon(base, overlay, composed.tint)
+        show(pixels, pixelsTexture(pixels))
+      }
+      if (composed.overlay) loadPixels(composed.overlay, withOverlay)
+      else withOverlay(null)
+    })
+  }
+  if (options.textures) Promise.resolve().then(() => draw(bedrockIcon(options.textures, itemName, options.aux)))
+  else itemTextures(version).then(byName => draw(javaIcon(version, byName[itemName])))
 
   return group
 }
@@ -131,4 +177,4 @@ function animateItem (mesh, ticks) {
   item.pivot.rotation.y = item.age / 20 + item.bobOffset
 }
 
-module.exports = { getItemMesh, animateItem }
+module.exports = { getItemMesh, animateItem, spriteGeometry }

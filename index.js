@@ -3,5 +3,7 @@ module.exports = {
   standalone: require('./lib/standalone'),
   headless: require('./lib/headless'),
   viewer: require('./viewer'),
-  supportedVersions: require('./viewer').supportedVersions
+  supportedVersions: require('./viewer').supportedVersions,
+  bedrockSupportedVersions: require('./viewer').bedrockSupportedVersions,
+  trackBedrock: require('./viewer').trackBedrock
 }

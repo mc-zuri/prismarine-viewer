@@ -1,4 +1,4 @@
-/* global document */
+/* global document, Image */
 const THREE = require('three')
 const path = require('path')
 
@@ -27,8 +27,24 @@ function loadPixels (texture, cb) {
   pixelCache[texture].then(cb)
 }
 
-function loadJSON (json, cb) {
-  cb(require(path.resolve(__dirname, '../../public/' + json)))
+// onError: called instead of throwing when the file cannot be had
+function loadJSON (json, cb, onError) {
+  let data
+  try {
+    data = require(path.resolve(__dirname, '../../public/' + json))
+  } catch (err) {
+    if (!onError) throw err
+    return onError(err)
+  }
+  cb(data)
 }
 
-module.exports = { loadTexture, loadPixels, loadJSON }
+// the image itself, for code that makes its own textures of it
+function loadImage (texture, onLoad, onError) {
+  const image = new Image()
+  image.onload = () => onLoad(image)
+  image.onerror = () => onError(new Error(texture + ' not found'))
+  image.src = path.resolve(__dirname, '../../public/' + texture)
+}
+
+module.exports = { loadTexture, loadPixels, loadJSON, loadImage }

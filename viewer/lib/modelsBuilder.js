@@ -1,7 +1,12 @@
-function cleanupBlockName (name) {
-  if (name.startsWith('block') || name.startsWith('minecraft:block')) return name.split('/')[1]
-  return name
-}
+// Builds the blocksStates file of a version from its minecraft-assets: the blockstates, with each variant's model
+// given as [geometry, texture set], indexes into the tables of __models:
+//   geometries   { elements, ao }: the model's elements, faces naming their texture by variable (#side) or by name
+//   textureSets  { variable: texture name }
+//   textures     texture name -> its place on the atlas (atlas.js)
+// Many blocks share a geometry (every slab, every stairs) and many states a texture set, so the file holds each once;
+// the mesher resolves a pair the first time it draws it (models.js).
+const { cleanupBlockName, unwrapTexture, defaultUv } = require('./prepareModel')
+const { buildRotationMatrix, matmulmat3, matmul3 } = require('./models')
 
 function getModel (name, blocksModels) {
   name = cleanupBlockName(name)
@@ -12,14 +17,8 @@ function getModel (name, blocksModels) {
 
   let model = { textures: {}, elements: [], ao: true }
 
-  for (const axis in ['x', 'y', 'z']) {
-    if (axis in data) {
-      model[axis] = data[axis]
-    }
-  }
-
   if (data.parent) {
-    model = getModel(data.parent, blocksModels)
+    model = getModel(data.parent, blocksModels) ?? model
   }
   if (data.textures) {
     Object.assign(model.textures, JSON.parse(JSON.stringify(data.textures)))
@@ -33,74 +32,74 @@ function getModel (name, blocksModels) {
   return model
 }
 
-function unwrapTexture (ref) {
-  // 26.x wraps some model texture refs in objects ({ sprite, force_translucent, ... })
-  return typeof ref === 'object' && ref !== null ? ref.sprite : ref
+// variable -> texture name, following #references; a texture the atlas lacks is missing_texture
+function resolveTextureNames (textures, atlasTextures) {
+  const names = {}
+  for (const variable in textures) {
+    let root = unwrapTexture(textures[variable])
+    const seen = new Set()
+    while (typeof root === 'string' && root.charAt(0) === '#' && !seen.has(root)) {
+      seen.add(root)
+      root = unwrapTexture(textures[root.substr(1)])
+    }
+    const name = typeof root === 'string' ? cleanupBlockName(root) : undefined
+    names[variable] = name && name in atlasTextures ? name : 'missing_texture'
+  }
+  return names
 }
 
-function prepareModel (model, texturesJson) {
-  // resolve texture names eg west: #all -> blocks/stone
-  for (const tex in model.textures) {
-    let root = unwrapTexture(model.textures[tex])
-    while (root.charAt(0) === '#') {
-      root = unwrapTexture(model.textures[root.substr(1)])
-    }
-    model.textures[tex] = root
-  }
-  for (const tex in model.textures) {
-    let name = model.textures[tex]
-    name = cleanupBlockName(name)
-    model.textures[tex] = texturesJson[name]
-  }
-  for (const elem of model.elements) {
-    for (const sideName of Object.keys(elem.faces)) {
-      const face = elem.faces[sideName]
+const FACES = ['down', 'up', 'north', 'south', 'west', 'east']
+const DIRECTIONS = { down: [0, -1, 0], up: [0, 1, 0], north: [0, 0, -1], south: [0, 0, 1], west: [-1, 0, 0], east: [1, 0, 0] }
+const AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }
 
-      if (face.texture.charAt(0) === '#') {
-        face.texture = JSON.parse(JSON.stringify(model.textures[face.texture.substr(1)]))
-      } else if (
-        !(cleanupBlockName(face.texture) in texturesJson) &&
-        face.texture in model.textures
-      ) {
-        face.texture = JSON.parse(JSON.stringify(model.textures[face.texture]))
-      } else {
-        let name = face.texture
-        name = cleanupBlockName(name)
-        face.texture = JSON.parse(JSON.stringify(texturesJson[name]))
-      }
-
-      let uv = face.uv
-      if (!uv) {
-        const _from = elem.from
-        const _to = elem.to
-
-        // taken from https://github.com/DragonDev1906/Minecraft-Overviewer/
-        uv = {
-          north: [_to[0], 16 - _to[1], _from[0], 16 - _from[1]],
-          east: [_from[2], 16 - _to[1], _to[2], 16 - _from[1]],
-          south: [_from[0], 16 - _to[1], _to[0], 16 - _from[1]],
-          west: [_from[2], 16 - _to[1], _to[2], 16 - _from[1]],
-          up: [_from[0], _from[2], _to[0], _to[2]],
-          down: [_to[0], _from[2], _from[0], _to[2]]
-        }[sideName]
-      }
-
-      const su = (uv[2] - uv[0]) * face.texture.su / 16
-      const sv = (uv[3] - uv[1]) * face.texture.sv / 16
-      face.texture.bu = face.texture.u + 0.5 * face.texture.su
-      face.texture.bv = face.texture.v + 0.5 * face.texture.sv
-      face.texture.u += uv[0] * face.texture.su / 16
-      face.texture.v += uv[1] * face.texture.sv / 16
-      face.texture.su = su
-      face.texture.sv = sv
+// the rotation the mesher gives a variant (models.js getSectionGeometry)
+function variantMatrix (variant) {
+  let matrix = null
+  for (const axis of ['x', 'y', 'z']) {
+    if (axis in variant) {
+      const m = buildRotationMatrix(axis, -variant[axis])
+      matrix = matrix ? matmulmat3(matrix, m) : m
     }
   }
+  return matrix
 }
 
-function resolveModel (name, blocksModels, texturesJson) {
-  const model = getModel(name, blocksModels)
-  prepareModel(model, texturesJson.textures)
-  return model
+const round = v => Math.round(v * 1e6) / 1e6
+const turnPoint = (matrix, p) => matmul3(matrix, p.map(c => c - 8)).map(c => round(c + 8))
+const directionOf = v => FACES.find(f => DIRECTIONS[f].every((c, i) => c === Math.round(v[i])))
+const sameUv = (a, b) => a.length === b.length && a.every((v, i) => v === b[i])
+
+// A variant with uvlock keeps its textures as they lie in the world, however its model turns: the elements are
+// turned here instead of by the mesher, and their faces take the UV of where they end up. A face whose UV the model
+// sets to something else than that of its box keeps it, turned with the face.
+function bakeRotation (elements, matrix) {
+  return elements.map(element => {
+    const a = turnPoint(matrix, element.from)
+    const b = turnPoint(matrix, element.to)
+    const baked = {
+      ...element,
+      from: [0, 1, 2].map(i => Math.min(a[i], b[i])),
+      to: [0, 1, 2].map(i => Math.max(a[i], b[i])),
+      faces: {}
+    }
+    for (const [name, face] of Object.entries(element.faces)) {
+      const turned = { ...face }
+      if (face.uv && sameUv(face.uv, defaultUv(name, element.from, element.to))) delete turned.uv
+      baked.faces[directionOf(matmul3(matrix, DIRECTIONS[name]))] = turned
+    }
+    if (element.rotation) {
+      // a rotation about an axis, seen turned, is the same rotation about the turned axis
+      const axis = matmul3(matrix, AXES[element.rotation.axis]).map(Math.round)
+      const i = axis.findIndex(c => c !== 0)
+      baked.rotation = {
+        ...element.rotation,
+        origin: turnPoint(matrix, element.rotation.origin),
+        axis: 'xyz'[i],
+        angle: element.rotation.angle * axis[i]
+      }
+    }
+    return baked
+  })
 }
 
 function prepareBlocksStates (mcAssets, atlas) {
@@ -118,32 +117,61 @@ function prepareBlocksStates (mcAssets, atlas) {
       all: 'blocks/missing_texture'
     }
   }
+
+  const geometries = []
+  const textureSets = []
+  const index = new Map()
+  const intern = (list, value) => {
+    const key = (list === geometries ? 'g' : 't') + JSON.stringify(value)
+    if (!index.has(key)) {
+      index.set(key, list.length)
+      list.push(value)
+    }
+    return index.get(key)
+  }
+  const missing = new Set()
+
+  function prepareVariant (variant) {
+    let model = getModel(variant.model, mcAssets.blocksModels)
+    if (!model) {
+      missing.add(variant.model)
+      model = getModel('missing_texture', mcAssets.blocksModels)
+    }
+    let elements = model.elements
+    const matrix = variant.uvlock ? variantMatrix(variant) : null
+    if (matrix) {
+      elements = bakeRotation(elements, matrix)
+      delete variant.x
+      delete variant.y
+      delete variant.z
+    }
+    delete variant.uvlock
+    variant.model = [
+      intern(geometries, { elements, ao: model.ao }),
+      intern(textureSets, resolveTextureNames(model.textures, atlas.json.textures))
+    ]
+  }
+
   for (const block of Object.values(blocksStates)) {
     if (!block) continue
     if (block.variants) {
       for (const variant of Object.values(block.variants)) {
-        if (variant instanceof Array) {
-          for (const v of variant) {
-            v.model = resolveModel(v.model, mcAssets.blocksModels, atlas.json)
-          }
-        } else {
-          variant.model = resolveModel(variant.model, mcAssets.blocksModels, atlas.json)
-        }
+        for (const v of [].concat(variant)) prepareVariant(v)
       }
     }
     if (block.multipart) {
-      for (const variant of block.multipart) {
-        if (variant.apply instanceof Array) {
-          for (const v of variant.apply) {
-            v.model = resolveModel(v.model, mcAssets.blocksModels, atlas.json)
-          }
-        } else {
-          variant.apply.model = resolveModel(variant.apply.model, mcAssets.blocksModels, atlas.json)
-        }
+      for (const part of block.multipart) {
+        for (const v of [].concat(part.apply)) prepareVariant(v)
       }
     }
   }
+  if (missing.size) console.warn(`${mcAssets.version}: no model ${[...missing].join(', ')}, drawn as missing_texture`)
+
+  blocksStates.__models = { geometries, textureSets, textures: atlas.json.textures }
+  // The colours tinted faces take (grass, leaves, water, redstone dust), for the mesher. Java's have been the same
+  // tables since 1.16; later versions of minecraft-data lack the constants (birch, spruce, lily pad).
+  blocksStates.__tints = mcAssets.tints ?? require('minecraft-data')('1.16.2').tints
   return blocksStates
 }
 
-module.exports = { prepareBlocksStates }
+module.exports = { prepareBlocksStates, getModel, bakeRotation, variantMatrix }

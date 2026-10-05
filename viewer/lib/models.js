@@ -1,25 +1,74 @@
 const { Vec3 } = require('vec3')
+const { prepareModel } = require('./prepareModel')
+const { connectedProperties } = require('./bedrockStates')
 
-const tints = require('minecraft-data')('1.16.2').tints
+// Tint colours come with the blocksStates (__tints, see modelsBuilder.js): per group (grass, foliage, water,
+// redstone, constant) the colour of each key (a biome name, a redstone power, a block name) and a default.
+const preparedTints = new WeakMap()
 
-for (const key of Object.keys(tints)) {
-  tints[key] = prepareTints(tints[key])
+function getTints (blocksStates) {
+  let tints = preparedTints.get(blocksStates)
+  if (!tints) {
+    tints = {}
+    for (const [group, value] of Object.entries(blocksStates.__tints ?? {})) tints[group] = prepareTints(value)
+    preparedTints.set(blocksStates, tints)
+  }
+  return tints
 }
 
 function prepareTints (tints) {
   const map = new Map()
-  const defaultValue = tintToGl(tints.default)
-  for (let { keys, color } of tints.data) {
-    color = tintToGl(color)
+  for (const { keys, color } of tints.data) {
+    const gl = tintToGl(color)
     for (const key of keys) {
-      map.set(`${key}`, color)
+      map.set(`${key}`, gl)
     }
   }
-  return new Proxy(map, {
-    get: (target, key) => {
-      return target.has(key) ? target.get(key) : defaultValue
-    }
-  })
+  return { map, default: tintToGl(tints.default) }
+}
+
+const NO_TINT = [1, 1, 1]
+
+// A face's UVs keep a hair inside its texels: a pixel on the edge of a face would otherwise sample the next texture of
+// the atlas (a transparent one lets what is behind show through: a dotted line between blocks). 1/32768 of the atlas,
+// 1/16 of a texel of a 2048 one, and at most a quarter of the face's own extent.
+const UV_INSET = 1 / 32768
+
+// where a corner's fraction (0 to 1) of a face's extent (size, negative when its texture runs backwards) lies
+function insetUv (fraction, size) {
+  const inset = Math.sign(size) * Math.min(UV_INSET, Math.abs(size) / 4)
+  return inset + fraction * (size - 2 * inset)
+}
+
+// the colour of a key in a tint group; white where the blocksStates carry no tints
+function tintOf (tints, group, key) {
+  const tint = tints[group]
+  if (!tint) return NO_TINT
+  return tint.map.get(`${key}`) ?? tint.default
+}
+
+const constantTints = new Map()
+
+// Bedrock: the colour of a block's tinted faces, by the tint method the game draws it with (blocks_render.json):
+// a group of the tints by biome (grass, foliage, birch, evergreen, dry, water), redstone dust by its power, a stem
+// by its growth, or a constant colour ('#208030', lily pads). A block of several kinds before the flattening (old
+// leaves: birch, spruce...) names its method by one of its states: { property, values: { value: method }, default }
+function bedrockTint (method, block, biome, tints) {
+  if (typeof method === 'object') {
+    method = method.values?.[block.getProperties()[method.property]] ?? method.default
+    if (!method) return NO_TINT
+  }
+  if (method[0] === '#') {
+    if (!constantTints.has(method)) constantTints.set(method, tintToGl(parseInt(method.slice(1, 7), 16)))
+    return constantTints.get(method)
+  }
+  if (method === 'redstone') return tintOf(tints, 'redstone', block.getProperties().redstone_signal ?? 0)
+  if (method === 'stem') {
+    const growth = +(block.getProperties().growth ?? 7)
+    if (tints.stem) return tintOf(tints, 'stem', growth)
+    return [growth * 32 / 255, (255 - growth * 8) / 255, growth * 4 / 255]
+  }
+  return tintOf(tints, method, biome)
 }
 
 function tintToGl (tint) {
@@ -98,17 +147,29 @@ const elemFaces = {
   }
 }
 
-function getLiquidRenderHeight (world, block, type) {
-  if (!block || block.type !== type) return 1 / 9
-  if (block.metadata === 0) { // source block
-    const blockAbove = world.getBlock(block.position.offset(0, 1, 0))
-    if (blockAbove && blockAbove.type === type) return 1
-    return 8 / 9
-  }
-  return ((block.metadata >= 8 ? 8 : 7 - block.metadata) + 1) / 9
+// The liquid of type `type` at a block: the block itself, or (Bedrock) the liquid in its liquid layer, as the water
+// around seagrass and of waterlogged blocks
+function liquidOf (block, type) {
+  if (!block) return null
+  if (block.type === type) return block
+  if (block.liquidLayer && block.liquidLayer.type === type) return block.liquidLayer
+  return null
 }
 
-function renderLiquid (world, cursor, texture, type, biome, water, attr) {
+function getLiquidRenderHeight (world, block, type) {
+  const liquid = liquidOf(block, type)
+  if (!liquid) return 1 / 9
+  if (liquid.metadata === 0) { // source block
+    const blockAbove = world.getBlock(block.position.offset(0, 1, 0))
+    if (liquidOf(blockAbove, type)) return 1
+    return 8 / 9
+  }
+  return ((liquid.metadata >= 8 ? 8 : 7 - liquid.metadata) + 1) / 9
+}
+
+// flowTexture: the flowing texture, where the model names one (textures.flow), drawn on the sides, and on the top
+// wherever the surface slopes, turned to run downhill as the game does; its frames span two blocks
+function renderLiquid (world, cursor, texture, type, biome, water, attr, tints, flowTexture) {
   const heights = []
   for (let z = -1; z <= 1; z++) {
     for (let x = -1; x <= 1; x++) {
@@ -122,13 +183,32 @@ function renderLiquid (world, cursor, texture, type, biome, water, attr) {
     Math.max(Math.max(heights[4], heights[5]), Math.max(heights[7], heights[8]))
   ]
 
+  // top-face texture coordinates per corner (x, z): still, or the flow turned downhill
+  let topUv = null
+  if (flowTexture) {
+    const [h00, h10, h01, h11] = cornerHeights // index z * 2 + x
+    const flowX = (h00 + h01) - (h10 + h11)
+    const flowZ = (h00 + h10) - (h01 + h11)
+    if (Math.abs(flowX) > 1e-4 || Math.abs(flowZ) > 1e-4) {
+      const angle = Math.atan2(flowZ, flowX) - Math.PI / 2
+      const s = Math.sin(angle) * 0.25
+      const c = Math.cos(angle) * 0.25
+      topUv = {
+        '0,0': [0.5 - c - s, 0.5 - c + s],
+        '0,1': [0.5 - c + s, 0.5 + c + s],
+        '1,1': [0.5 + c + s, 0.5 + c - s],
+        '1,0': [0.5 + c - s, 0.5 - c - s]
+      }
+    }
+  }
+
   for (const face in elemFaces) {
     const { dir, corners } = elemFaces[face]
     const isUp = dir[1] === 1
 
     const neighbor = world.getBlock(cursor.offset(...dir))
     if (!neighbor) continue
-    if (neighbor.type === type) continue
+    if (liquidOf(neighbor, type)) continue
     if ((neighbor.isCube && !isUp) || neighbor.material === 'plant' || neighbor.getProperties().waterlogged) continue
     if (neighbor.position.y < (world.minY ?? 0)) continue
 
@@ -137,14 +217,16 @@ function renderLiquid (world, cursor, texture, type, biome, water, attr) {
       let m = 1 // Fake lighting to improve lisibility
       if (Math.abs(dir[0]) > 0) m = 0.6
       else if (Math.abs(dir[2]) > 0) m = 0.8
-      tint = tints.water[biome]
+      tint = tintOf(tints, 'water', biome)
       tint = [tint[0] * m, tint[1] * m, tint[2] * m]
     }
 
-    const u = texture.u
-    const v = texture.v
-    const su = texture.su
-    const sv = texture.sv
+    const faceTexture = flowTexture && (!isUp || topUv) ? flowTexture : texture
+    const scale = faceTexture === flowTexture ? 0.5 : 1
+    const u = faceTexture.u
+    const v = faceTexture.v
+    const su = faceTexture.su * scale
+    const sv = faceTexture.sv * scale
 
     for (const pos of corners) {
       const height = cornerHeights[pos[2] * 2 + pos[0]]
@@ -153,8 +235,13 @@ function renderLiquid (world, cursor, texture, type, biome, water, attr) {
         (pos[1] ? height : 0) + (cursor.y & 15) - 8,
         (pos[2] ? 1 : 0) + (cursor.z & 15) - 8)
       attr.t_normals.push(...dir)
-      attr.t_uvs.push(pos[3] * su + u, pos[4] * sv * (pos[1] ? 1 : height) + v)
-      attr.t_animations.push(texture.frames || 1, texture.frametime || 1, texture.framestep || 0)
+      if (isUp && topUv) {
+        const [tu, tv] = topUv[`${pos[0]},${pos[2]}`]
+        attr.t_uvs.push(insetUv(tu, faceTexture.su) + u, insetUv(tv, faceTexture.sv) + v)
+      } else {
+        attr.t_uvs.push(insetUv(pos[3], su) + u, insetUv(pos[4] * (pos[1] ? 1 : height), sv) + v)
+      }
+      attr.t_animations.push(faceTexture.frames || 1, faceTexture.frametime || 1, faceTexture.framestep || 0)
       attr.t_colors.push(tint[0], tint[1], tint[2])
     }
   }
@@ -229,13 +316,15 @@ function buildRotationMatrix (axis, degree) {
   return matrix
 }
 
-function renderElement (world, cursor, element, doAO, attr, globalMatrix, globalShift, block, biome) {
+function renderElement (world, cursor, element, doAO, attr, globalMatrix, globalShift, block, biome, tints) {
   const cullIfIdentical = block.name.indexOf('glass') >= 0
 
   for (const face in element.faces) {
     const eFace = element.faces[face]
     const { corners, mask1, mask2 } = elemFaces[face]
-    const dir = matmul3(globalMatrix, elemFaces[face].dir)
+    // (variants turn by quarter turns: whole numbers, but for the float error of cos and sin, which would put the
+    // neighbour one block off once floored)
+    const dir = matmul3(globalMatrix, elemFaces[face].dir).map(Math.round)
 
     if (eFace.cullface) {
       const neighbor = world.getBlock(cursor.plus(new Vec3(...dir)))
@@ -262,16 +351,19 @@ function renderElement (world, cursor, element, doAO, attr, globalMatrix, global
     let tint = [1, 1, 1]
     if (eFace.tintindex !== undefined) {
       if (eFace.tintindex === 0) {
-        if (block.name === 'redstone_wire') {
-          tint = tints.redstone[`${block.getProperties().power}`]
+        if ('tint' in block) {
+          // Bedrock: the tint method its assets give the block
+          if (block.tint) tint = bedrockTint(block.tint, block, biome, tints)
+        } else if (block.name === 'redstone_wire') {
+          tint = tintOf(tints, 'redstone', block.getProperties().power)
         } else if (block.name === 'birch_leaves' ||
           block.name === 'spruce_leaves' ||
           block.name === 'lily_pad') {
-          tint = tints.constant[block.name]
+          tint = tintOf(tints, 'constant', block.name)
         } else if (block.name.includes('leaves') || block.name === 'vine') {
-          tint = tints.foliage[biome]
+          tint = tintOf(tints, 'foliage', biome)
         } else {
-          tint = tints.grass[biome]
+          tint = tintOf(tints, 'grass', biome)
         }
       }
     }
@@ -289,6 +381,14 @@ function renderElement (world, cursor, element, doAO, attr, globalMatrix, global
         element.rotation.axis,
         element.rotation.angle
       )
+
+      if (element.rotation.rescale) {
+        // stretch the two turned axes back to the size of the block, as the game does for cross plants and sloped
+        // rails: R * diag(scale)
+        const axis = { x: 0, y: 1, z: 2 }[element.rotation.axis]
+        const scale = 1 / Math.cos(element.rotation.angle / 180 * Math.PI)
+        localMatrix = localMatrix.map(row => row.map((v, j) => j === axis ? v : v * scale))
+      }
 
       localShift = vecsub3(
         element.rotation.origin,
@@ -321,7 +421,7 @@ function renderElement (world, cursor, element, doAO, attr, globalMatrix, global
 
       const baseu = (pos[3] - 0.5) * uvcs - (pos[4] - 0.5) * uvsn + 0.5
       const basev = (pos[3] - 0.5) * uvsn + (pos[4] - 0.5) * uvcs + 0.5
-      attr.uvs.push(baseu * su + u, basev * sv + v)
+      attr.uvs.push(insetUv(baseu, su) + u, insetUv(basev, sv) + v)
       attr.animations.push(eFace.texture.frames || 1, eFace.texture.frametime || 1, eFace.texture.framestep || 0)
 
       let light = 1
@@ -329,9 +429,9 @@ function renderElement (world, cursor, element, doAO, attr, globalMatrix, global
         const dx = pos[0] * 2 - 1
         const dy = pos[1] * 2 - 1
         const dz = pos[2] * 2 - 1
-        const cornerDir = matmul3(globalMatrix, [dx, dy, dz])
-        const side1Dir = matmul3(globalMatrix, [dx * mask1[0], dy * mask1[1], dz * mask1[2]])
-        const side2Dir = matmul3(globalMatrix, [dx * mask2[0], dy * mask2[1], dz * mask2[2]])
+        const cornerDir = matmul3(globalMatrix, [dx, dy, dz]).map(Math.round)
+        const side1Dir = matmul3(globalMatrix, [dx * mask1[0], dy * mask1[1], dz * mask1[2]]).map(Math.round)
+        const side2Dir = matmul3(globalMatrix, [dx * mask2[0], dy * mask2[1], dz * mask2[2]]).map(Math.round)
         const side1 = world.getBlock(cursor.offset(...side1Dir))
         const side2 = world.getBlock(cursor.offset(...side2Dir))
         const corner = world.getBlock(cursor.offset(...cornerDir))
@@ -364,6 +464,29 @@ function renderElement (world, cursor, element, doAO, attr, globalMatrix, global
   }
 }
 
+// A variant's model: [geometry, texture set] of the blocksStates' __models (modelsBuilder.js), resolved against the
+// atlas the first time it is drawn; or the model itself, for blocksStates whose models are resolved already.
+const resolvedModels = new WeakMap()
+
+function variantModel (variant, blocksStates) {
+  if (!Array.isArray(variant.model)) return variant.model
+  let resolved = resolvedModels.get(blocksStates)
+  if (!resolved) {
+    resolved = new Map()
+    resolvedModels.set(blocksStates, resolved)
+  }
+  const [geometry, textureSet] = variant.model
+  const key = geometry + ',' + textureSet
+  let model = resolved.get(key)
+  if (!model) {
+    const { geometries, textureSets, textures } = blocksStates.__models
+    model = JSON.parse(JSON.stringify({ ...geometries[geometry], textures: textureSets[textureSet] }))
+    prepareModel(model, textures)
+    resolved.set(key, model)
+  }
+  return model
+}
+
 function getSectionGeometry (sx, sy, sz, world, blocksStates) {
   const attr = {
     sx: sx + 8,
@@ -382,24 +505,46 @@ function getSectionGeometry (sx, sy, sz, world, blocksStates) {
     indices: []
   }
 
+  const tints = getTints(blocksStates)
   const cursor = new Vec3(0, 0, 0)
   for (cursor.y = sy; cursor.y < sy + 16; cursor.y++) {
     for (cursor.z = sz; cursor.z < sz + 16; cursor.z++) {
       for (cursor.x = sx; cursor.x < sx + 16; cursor.x++) {
         const block = world.getBlock(cursor)
         const biome = block.biome.name
-        if (block.variant === undefined) {
-          block.variant = getModelVariants(block, blocksStates)
+        // (before the neighbours are read: a neighbour of the same state is the same block object)
+        const liquidLayer = block.liquidLayer
+        let variants
+        if (block.connect) {
+          // Bedrock: shaped by its neighbours, which its state does not say
+          const props = { ...block.getProperties(), ...connectedProperties(world, cursor, block) }
+          variants = getModelVariants({ name: block.name, getProperties: () => props }, blocksStates)
+        } else {
+          if (block.variant === undefined) {
+            block.variant = getModelVariants(block, blocksStates)
+          }
+          variants = block.variant
         }
 
-        for (const variant of block.variant) {
-          if (!variant || !variant.model) continue
+        if (liquidLayer) {
+          // the liquid in the block
+          if (liquidLayer.variant === undefined) liquidLayer.variant = getModelVariants(liquidLayer, blocksStates)
+          const variant = liquidLayer.variant[0]
+          if (variant && variant.model) {
+            const model = variantModel(variant, blocksStates)
+            renderLiquid(world, cursor, model.textures.particle, liquidLayer.type, biome, liquidLayer.liquid === 'water', attr, tints, model.textures.flow)
+          }
+        }
 
-          if (block.name === 'water') {
-            renderLiquid(world, cursor, variant.model.textures.particle, block.type, biome, true, attr)
-          } else if (block.name === 'lava') {
-            renderLiquid(world, cursor, variant.model.textures.particle, block.type, biome, false, attr)
-          } else {
+        for (const variant of variants) {
+          if (!variant || !variant.model) continue
+          const model = variantModel(variant, blocksStates)
+          const liquid = block.liquid ?? (block.name === 'water' ? 'water' : block.name === 'lava' ? 'lava' : null)
+
+          if (liquid) {
+            renderLiquid(world, cursor, model.textures.particle, block.type, biome, liquid === 'water', attr, tints, model.textures.flow)
+          }
+          if (!liquid || model.elements.length) {
             let globalMatrix = null
             let globalShift = null
 
@@ -415,8 +560,8 @@ function getSectionGeometry (sx, sy, sz, world, blocksStates) {
               globalShift = vecsub3(globalShift, matmul3(globalMatrix, globalShift))
             }
 
-            for (const element of variant.model.elements) {
-              renderElement(world, cursor, element, variant.model.ao, attr, globalMatrix, globalShift, block, biome)
+            for (const element of model.elements) {
+              renderElement(world, cursor, element, model.ao, attr, globalMatrix, globalShift, block, biome, tints)
             }
           }
         }
@@ -453,6 +598,9 @@ function getSectionGeometry (sx, sy, sz, world, blocksStates) {
   attr.colors = new Float32Array(attr.colors)
   attr.uvs = new Float32Array(attr.uvs)
   attr.animations = new Float32Array(attr.animations)
+  // typed, so the worker can transfer it instead of copying it
+  const IndexArray = attr.positions.length / 3 > 65535 ? Uint32Array : Uint16Array
+  attr.indices = new IndexArray(attr.indices)
 
   return attr
 }
@@ -513,4 +661,4 @@ function getModelVariants (block, blockStates) {
   return []
 }
 
-module.exports = { getSectionGeometry }
+module.exports = { getSectionGeometry, buildRotationMatrix, matmulmat3, matmul3 }

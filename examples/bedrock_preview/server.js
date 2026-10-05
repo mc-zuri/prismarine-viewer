@@ -38,7 +38,7 @@ app.get(/^\/bedrock-assets\/([^/]+)\/(.+)$/, (req, res) => {
   res.sendFile(path.join(bedrockData, holder, ...parts), err => { if (err && !res.headersSent) res.status(404).end() })
 })
 // every version's item icons checked (itemCheck.js)
-app.get('/bedrock-items-check', (req, res) => {
+app.get('/bedrock-items-check.json', (req, res) => {
   checkExport(null, bedrockExport(bedrockData)).then(results => res.json(results), err => res.status(500).json({ error: err.message }))
 })
 

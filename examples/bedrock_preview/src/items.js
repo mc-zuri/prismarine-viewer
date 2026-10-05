@@ -7,7 +7,8 @@
 //   no file    its texture or overlay is not in the export
 //   undyed     an icon the game dyes (its dyed part grey, what the dye leaves alone faint) that nothing colours
 //   grey       a block icon all grey and drawn as it is: some the game colours (leaves, grass), most not (stone)
-// "check every version" checks every version minecraft-assets has at once (itemCheck.js, on the server).
+// "check every version" checks every version minecraft-assets has at once (itemCheck.js: by the server, or written
+// with the site: build-site.js).
 //
 //   items.html?version=1.26.51&filter=leather&show=problems
 const { iconsOf, isComposed, composeIcon, isDyeMask, isGrey } = require('../../../viewer/lib/bedrock/itemIcon')
@@ -37,7 +38,9 @@ function setParam (name, value) {
   window.history.replaceState(null, '', '?' + params)
 }
 
-const fileUrl = (version, file) => `bedrock-assets/${version}/${file}`
+// the URL of a version's file, where versions.json says the version keeps it (an entry the same as an earlier
+// version's is kept once, in that version's folder)
+const fileUrl = (version, file) => `bedrock-assets/${state.index[version]?.paths?.[file.split('/')[0]] ?? version}/${file}`
 
 const pictures = new Map()
 // a texture's RGBA pixels, null when the export has no such file
@@ -110,7 +113,7 @@ function paint (canvas, pixels, size) {
 
 // ---- a version -----------------------------------------------------------------------------------------------------
 
-const state = { version: null, entries: [], byName: {}, meta: null, shown: [], chosen: null }
+const state = { index: {}, version: null, entries: [], byName: {}, meta: null, shown: [], chosen: null }
 
 async function loadVersion () {
   const version = ui.version.value
@@ -221,7 +224,7 @@ function showInfo (s) {
 
 async function checkAll () {
   ui.report.textContent = 'checking every version (the first time, a minute or so)...'
-  const results = await fetch('bedrock-items-check').then(r => r.json())
+  const results = await fetch('bedrock-items-check.json').then(r => r.json())
   const table = document.createElement('table')
   const row = (cells, tag = 'td') => {
     const tr = document.createElement('tr')
@@ -263,7 +266,7 @@ let queue = Promise.resolve()
 const run = fn => { queue = queue.then(fn).catch(err => { ui.status.textContent = String(err?.stack ?? err) }) }
 
 async function main () {
-  const index = await fetch('bedrock-assets/versions.json').then(r => r.json())
+  const index = state.index = await fetch('bedrock-assets/versions.json').then(r => r.json())
   const viewerVersions = await fetch('worldBounds.json').then(r => r.json()).then(b => new Set(Object.keys(b))).catch(() => new Set())
   for (const version of Object.keys(index).sort(compareVersions).reverse()) {
     const option = document.createElement('option')

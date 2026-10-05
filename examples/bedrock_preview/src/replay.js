@@ -145,9 +145,10 @@ async function load (name) {
 }
 
 async function main () {
-  const names = await (await fetch('recordings')).json()
+  // (a static copy of the pages, such as GitHub Pages has, has no server to read recordings)
+  const names = await fetch('recordings').then(r => r.ok ? r.json() : []).catch(() => [])
   if (!names.length) {
-    status.textContent = 'no recordings: start the server with a directory of them (server.js <port> <directory>)'
+    status.textContent = 'no recordings: the replay reads them through the preview server, started with a directory of them (server.js <port> <directory>)'
     return
   }
   for (const name of names) ui.recording.add(new window.Option(name, name))

@@ -1,0 +1,68 @@
+# The Bedrock preview pages (examples/bedrock_preview) on GitHub Pages, built from this branch with the forks its
+# package.json names (minecraft-data, minecraft-assets, prismarine-chunk, prismarine-block, prismarine-registry, each on
+# its bedrock-web-viewer branch). The repository's Pages must be set to deploy from GitHub Actions.
+name: Bedrock preview pages
+
+on:
+  push:
+    branches: [bedrock-web-viewer]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: bedrock-preview-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+      - name: Install native dependencies
+        run: sudo apt-get update && sudo apt-get install -y libxi-dev libcairo2-dev libjpeg-dev libpango1.0-dev libgif-dev build-essential libglu1-mesa-dev libglew-dev
+      # (no scripts yet: minecraft-data's own build needs its data, a submodule, which npm does not fetch of a git
+      # dependency: it downloads GitHub's archive of the commit)
+      - name: Install
+        run: npm install --ignore-scripts
+      - name: The data forks, with their data
+        run: |
+          fork () { # <package> <its repository> <the data repository> <the data's folder in it>
+            rm -rf "node_modules/$1"
+            git clone -q --depth 1 --branch bedrock-web-viewer "https://github.com/mc-zuri/$2.git" "node_modules/$1"
+            git clone -q --depth 1 --branch bedrock-web-viewer "https://github.com/mc-zuri/$3.git" "node_modules/$1/$4"
+            echo "$1: $(git -C "node_modules/$1" log --oneline -1), its data $(git -C "node_modules/$1/$4" log --oneline -1)"
+          }
+          fork minecraft-data minecraft-data-node minecraft-data minecraft-data
+          fork minecraft-assets node-minecraft-assets minecraft-assets minecraft-assets
+          (cd node_modules/minecraft-data && npm run generate:data)
+      # (the install scripts held back above; then the viewer's assets, of the Bedrock versions only, and its bundles)
+      - name: Build the viewer
+        run: npm rebuild && npm run prepare
+        env:
+          PRISMARINE_VIEWER_VERSIONS: bedrock
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+      - name: Build the pages
+        run: npx webpack -c examples/bedrock_preview/webpack.config.js
+      - name: Write the site
+        run: node examples/bedrock_preview/build-site.js _site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

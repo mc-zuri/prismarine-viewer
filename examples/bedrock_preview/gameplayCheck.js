@@ -294,7 +294,8 @@ async function play (version, cache, hashes) {
     //   gate       into a box of glass with a fence gate in its south wall, not breaking blocks (it opens the gate)
     //   swim       across the pond, in creative (its jumps in the water are no double tap)
     //   lake ...   a lake 6 deep: across it, down to its floor, along its floor, from there out onto the bank, and into
-    //              it from the bank, every tick in the water but the first a prediction's
+    //              it from the bank, every tick in the water but the first a prediction's; across it, it swims
+    //              sprinting, and from floor to floor it comes up for air
     // once turning and pressing as a person does (humanLike) and once as the pathfinder says; each tick its prediction
     // of the tick is the tick, and the inputs the client sent are those of a prediction (audit.js)
     if (!recorded || WORLD_WALKS[recordedName]) {
@@ -312,11 +313,11 @@ async function play (version, cache, hashes) {
           opened: { x: back.x - 4, y: G, z: back.z - 5 }
         },
         // across the pond, in creative: the jump it swims with is not the double tap that flies
-        { name: 'swim', goal: { x: -22, y: G - 1, z: 12 }, setup: [`/tp -11.5 ${G - 1} 12.5`] },
+        { name: 'swim', goal: { x: -22, y: G - 1, z: 12 }, setup: [`/tp -11.5 ${G - 1} 12.5`], afloat: true },
         // a lake 6 deep west of the lane: across it, down to its floor, up from there out onto the bank, and into it
-        { name: 'lake across', goal: { x: -29, y: G - 1, z: 25 }, setup: [...lake, `/tp -11.5 ${G - 1} 25.5`], swims: true, afloat: true },
+        { name: 'lake across', goal: { x: -29, y: G - 1, z: 25 }, setup: [...lake, `/tp -11.5 ${G - 1} 25.5`], swims: true, afloat: true, sprints: true },
         { name: 'lake down', goal: { x: -20, y: G - 6, z: 25 }, setup: [...lake, `/tp -11.5 ${G - 1} 25.5`], swims: true },
-        { name: 'lake floor', goal: { x: -12, y: G - 6, z: 29 }, setup: [...lake, `/tp -28.5 ${G - 6} 22.5`], swims: true },
+        { name: 'lake floor', goal: { x: -12, y: G - 6, z: 29 }, setup: [...lake, `/tp -28.5 ${G - 6} 22.5`], swims: true, breathes: true },
         { name: 'lake out', goal: { x: -6, y: G, z: 25 }, setup: [...lake, `/tp -20.5 ${G - 6} 25.5`], swims: true },
         { name: 'lake in', goal: { x: -25, y: G - 1, z: 25 }, setup: [...lake, `/tp -6.5 ${G} 25.5`], swims: true, afloat: true }
       ]
@@ -341,6 +342,15 @@ async function play (version, cache, hashes) {
         pathfinder.on('end', onEnd)
         const { broken, placed } = connection.stats
         mismatch = null
+        // the ticks it swam (sprinting in the water: the engine's swim) and had its head out of the water
+        const seen = { swimming: 0, breathing: 0 }
+        const onStep = () => {
+          const { pos, bedrock } = client.player
+          if (bedrock?.swimming) seen.swimming++
+          const eyes = client.movement.world.getBlock({ x: pos.x, y: pos.y + client.movement.physics.eyeHeight, z: pos.z })
+          if (!eyes?.liquid && !/water/.test(eyes?.name ?? '')) seen.breathing++
+        }
+        client.on('step', onStep)
         const refused = pathfinder.goTo(walk.goal)
         if (refused) {
           fail(`pathfinder ${name}: ${refused}`)
@@ -359,10 +369,13 @@ async function play (version, cache, hashes) {
           if (walk.placed && !counts.placed) fail(`pathfinder ${name}: nothing placed`)
           if (walk.opened && !/open_bit=(1|true)/.test(gateState(server, walk.opened))) fail(`pathfinder ${name}: the gate is not open`)
           if (Math.abs(connection.feet.x - at.x) > 1e-3 || Math.abs(connection.feet.y - at.y) > 1e-3 || Math.abs(connection.feet.z - at.z) > 1e-3) fail(`pathfinder ${name}: the server has the player at ${connection.feet.x},${connection.feet.y},${connection.feet.z}`)
+          if (walk.sprints && !seen.swimming) fail(`pathfinder ${name}: it never swam (sprinting in the water)`)
+          if (walk.breathes && !seen.breathing) fail(`pathfinder ${name}: its head never came out of the water`)
           // swimming, every tick but the first (the walk's plan) is a prediction's
           if (walk.swims && audit.counts.unpredicted > 1) fail(`pathfinder ${name}: ${audit.counts.unpredicted} of ${audit.counts.ticks} ticks walked without a prediction`)
           if (mismatch) fail(`pathfinder ${name}: tick ${mismatch.t} at ${mismatch.at.join(' ')} is not the ${mismatch.kind === 'input' ? 'inputs predicted' : 'tick predicted'}: ${mismatch.fields.slice(0, 3).map(f => `${f.field} ${JSON.stringify(f.predicted)} for ${JSON.stringify(f.actual)}`).join(', ')}`)
         }
+        client.off('step', onStep)
         pathfinder.off('route', onRoute)
         pathfinder.off('end', onEnd)
         pathfinder.stop()

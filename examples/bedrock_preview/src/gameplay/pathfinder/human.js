@@ -123,13 +123,14 @@ class Steering {
   look (yaw, pitch) {
     this.setControlState('back', false)
     if (!this.enabled) return this.body.setLook(yaw, pitch)
-    this.target = this.targetOf(yaw, pitch, this.body.entity.position)
+    this.target = this.targetOf(yaw, pitch, this.body.entity.position, !!this.body.state?.isInWater)
   }
 
-  // where the pathfinder looks walking, from the feet: toward the next step, the eyes on the route ahead
-  targetOf (yaw, pitch, feet) {
+  // where the pathfinder looks walking, from the feet: toward the next step, the eyes on the route ahead; in the water
+  // the pathfinder's own pitch, which steers a swimmer
+  targetOf (yaw, pitch, feet, inWater) {
     const eyes = { x: feet.x, y: feet.y + this.body.eyeHeight, z: feet.z }
-    return { yaw: bedrockYaw(yaw), pitch: restPitch(this.route, feet, eyes) ?? bedrockPitch(pitch) }
+    return { yaw: bedrockYaw(yaw), pitch: (inWater ? undefined : restPitch(this.route, feet, eyes)) ?? bedrockPitch(pitch) }
   }
 
   // A look at a point: the edge to bridge from, the block to break or place against
@@ -194,7 +195,7 @@ class Steering {
       this.runs.set(state, run)
     }
     const want = this.enabled
-      ? { target: this.targetOf(state.yaw, state.pitch, state.pos), keys: state.control, released: true }
+      ? { target: this.targetOf(state.yaw, state.pitch, state.pos, !!state.isInWater), keys: state.control, released: true }
       : { look: { yaw: state.yaw, pitch: state.pitch }, keys: state.control, released: true }
     const steered = steer(this.enabled, want, run.memory, { look: run.look, onGround: !!state.onGround, inLiquid: !!state.isInWater || !!state.isInLava, mayFly: !!state.mayFly })
     run.look = steered.look

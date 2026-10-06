@@ -26,7 +26,8 @@ const PACKAGES = [
   { name: 'prismarine-chunk', dir: 'node_modules/prismarine-chunk' },
   { name: 'prismarine-block', dir: 'node_modules/prismarine-block' },
   { name: 'bedrock-protocol', dir: 'node_modules/bedrock-protocol' },
-  { name: 'prismarine-physics', dir: 'node_modules/prismarine-physics-bedrock', package: 'prismarine-physics-bedrock' }
+  { name: 'prismarine-physics', dir: 'node_modules/prismarine-physics-bedrock', package: 'prismarine-physics-bedrock' },
+  { name: 'mineflayer-pathfinder', dir: 'node_modules/mineflayer-pathfinder' }
 ]
 const MARKER = '.link-local.json'
 

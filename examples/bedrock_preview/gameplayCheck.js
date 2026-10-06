@@ -10,6 +10,8 @@
 //   walk       40 ticks forward on the ground: the player goes 3 blocks or more, stays on the ground, and the server
 //              has it where the client does
 //   build      a block placed and broken is placed and broken in both worlds
+//   pathfinder in the showcase: mineflayer-pathfinder walks the player round a wall, breaks into a box of glass and
+//              pillars up onto a pillar, and the server has it where the client does
 //   portals    in a recorded world with them: the overworld's nether portal takes the player to the nether, its end
 //              portal to the end, each dimension's columns the same on both sides; /dimension takes it back
 //   commands   /setblock, /tp, /gamemode survival and /time do what they say
@@ -39,6 +41,13 @@ lazy.filename = dataJs
 lazy.loaded = true
 lazy.exports = createLazyData({ paths, files: loaders })
 require.cache[dataJs] = lazy
+// mineflayer-pathfinder tries its moves with prismarine-physics' PlayerState: the Bedrock fork's, as the bundle has it
+const physicsFile = require.resolve('prismarine-physics', { paths: [path.dirname(require.resolve('mineflayer-pathfinder/package.json'))] })
+const physics = new Module(physicsFile)
+physics.filename = physicsFile
+physics.loaded = true
+physics.exports = require('prismarine-physics-bedrock')
+require.cache[physicsFile] = physics
 
 const { createServer } = require('./src/gameplay/server/server')
 const { createClient } = require('./src/gameplay/client/client')
@@ -47,6 +56,7 @@ const { compile } = require('./src/gameplay/protocol/codec')
 const { createCodec } = require('./src/gameplay/protocol/codec')
 const { G } = require('./src/showcase')
 const { exact } = require('prismarine-physics-bedrock/lib/bedrock/index.ts')
+const { attachPathfinder } = require('./src/gameplay/pathfinder')
 
 // packets of old versions whose schema protodef cannot write from defaults (none the gameplay sends)
 const SCHEMA_GAPS = { clientbound_map_item_data: ['1.16.201', '1.16.210'], update_block_synced: ['1.16.201', '1.16.210', '1.16.220', '1.17.0', '1.17.10'], player_armor_damage: ['1.16.201'] }
@@ -183,6 +193,13 @@ function compareColumns (server, client, dimension = server.dimension) {
 }
 
 // the direction from the eyes to a point
+// a block's states as text, by the server's registry ('open_bit=1,...')
+function gateState (server, pos) {
+  const id = server.getBlockStateId(pos)
+  const state = server.registry.blockStates.find((s, index) => (s.stateId ?? index) === id)
+  return Object.entries(state?.states ?? {}).map(([k, v]) => `${k}=${v.value}`).join(',')
+}
+
 function aimAt (client, point) {
   const { pos } = client.player
   const eye = new Vec3(pos.x, pos.y + client.movement.physics.eyeHeight, pos.z)
@@ -252,6 +269,63 @@ async function play (version, cache, hashes) {
       if (server.getBlockStateId(placed) !== air || client.chunks.getBlockStateId(placed) !== air) fail(`broken: the server has ${server.getBlockStateId(placed)}, the client ${client.chunks.getBlockStateId(placed)}`)
       if (connection.stats.refused) fail(`${connection.stats.refused} refused`)
       if (connection.stats.heldMismatches) fail('the held item is not the hotbar\'s')
+    }
+
+    // the pathfinder: three walks, each must arrive with the server having the player where the client has it:
+    //   round      back to the block it started on, past a wall of glass 3 wide across the lane
+    //   break in   into a box of glass shut all round (it breaks its way in)
+    //   build up   onto a pillar of glass 3 high (it pillars up beside it, placing blocks under itself)
+    //   gate       into a box of glass with a fence gate in its south wall, not breaking blocks (it opens the gate)
+    if (!recorded) {
+      const back = { x: Math.floor(start.x), y: G, z: Math.floor(start.z) }
+      const walks = [
+        { name: 'round', goal: back, setup: [`/fill -1 ${G} ${back.z - 3} 1 ${G + 1} ${back.z - 3} glass`] },
+        { name: 'break in', goal: { x: back.x, y: G, z: back.z - 6 }, setup: [`/fill ${back.x - 1} ${G} ${back.z - 7} ${back.x + 1} ${G + 2} ${back.z - 5} glass`, `/fill ${back.x} ${G} ${back.z - 6} ${back.x} ${G + 1} ${back.z - 6} air`], broken: true },
+        { name: 'build up', goal: { x: back.x + 3, y: G + 3, z: back.z - 6 }, setup: [`/fill ${back.x + 3} ${G} ${back.z - 6} ${back.x + 3} ${G + 2} ${back.z - 6} glass`], placed: true },
+        {
+          name: 'gate',
+          goal: { x: back.x - 4, y: G, z: back.z - 6 },
+          options: { dig: false },
+          setup: [`/fill ${back.x - 5} ${G} ${back.z - 7} ${back.x - 3} ${G + 2} ${back.z - 5} glass`, `/fill ${back.x - 4} ${G} ${back.z - 6} ${back.x - 4} ${G + 1} ${back.z - 5} air`, `/setblock ${back.x - 4} ${G} ${back.z - 5} fence_gate`],
+          opened: { x: back.x - 4, y: G, z: back.z - 5 }
+        }
+      ]
+      const pathfinder = attachPathfinder(client, { humanLike: true })
+      const results = []
+      for (const walk of walks) {
+        for (const line of walk.setup) client.chat(line)
+        pathfinder.setOptions({ dig: true, ...walk.options })
+        await session.tick(3)
+        let ended = null
+        let routes = 0
+        const onRoute = route => { if (route) routes++ }
+        const onEnd = reason => { ended = reason }
+        pathfinder.on('route', onRoute)
+        pathfinder.on('end', onEnd)
+        const { broken, placed } = connection.stats
+        const refused = pathfinder.goTo(walk.goal)
+        if (refused) {
+          fail(`pathfinder ${walk.name}: ${refused}`)
+        } else {
+          await session.until(`the pathfinder walk ${walk.name}`, 800, () => ended !== null)
+          await session.tick(3)
+          const at = client.player.pos
+          const counts = { broken: connection.stats.broken - broken, placed: connection.stats.placed - placed }
+          results.push(`${walk.name} ${ended} (${routes} routes, ${counts.broken} broken, ${counts.placed} placed)`)
+          if (ended !== 'arrived') fail(`pathfinder ${walk.name}: ${ended}`)
+          if (Math.floor(at.x) !== walk.goal.x || Math.floor(at.z) !== walk.goal.z || Math.floor(at.y + 1e-3) !== walk.goal.y) fail(`pathfinder ${walk.name}: at ${at}, not ${walk.goal.x} ${walk.goal.y} ${walk.goal.z}`)
+          if (walk.broken && !counts.broken) fail(`pathfinder ${walk.name}: nothing broken`)
+          if (walk.placed && !counts.placed) fail(`pathfinder ${walk.name}: nothing placed`)
+          if (walk.opened && !/open_bit=(1|true)/.test(gateState(server, walk.opened))) fail(`pathfinder ${walk.name}: the gate is not open`)
+          if (Math.abs(connection.feet.x - at.x) > 1e-3 || Math.abs(connection.feet.y - at.y) > 1e-3 || Math.abs(connection.feet.z - at.z) > 1e-3) fail(`pathfinder ${walk.name}: the server has the player at ${connection.feet.x},${connection.feet.y},${connection.feet.z}`)
+        }
+        pathfinder.off('route', onRoute)
+        pathfinder.off('end', onEnd)
+        pathfinder.stop()
+      }
+      if (connection.stats.refused) fail(`pathfinder: ${connection.stats.refused} refused`)
+      row.pathfinder = results.join(', ')
+      pathfinder.close()
     }
 
     // portals: into the overworld's nether portal and its end portal, each dimension's columns read as the server has
@@ -335,7 +409,7 @@ async function main () {
         const t0 = Date.now()
         const row = await play(version, cache, hashes)
         if (!row.ok) failed++
-        const cells = `${row.columns ?? '-'} columns ${row.sections ?? '-'} sections, blobs ${row.hits ?? 0} hit ${row.misses ?? 0} missed${cache ? `, again ${row.rejoinMisses ?? '-'} missed` : ''}, walked ${row.walked ?? '-'}${row.portals ? `, portals: ${row.portals.trim()}` : ''}`
+        const cells = `${row.columns ?? '-'} columns ${row.sections ?? '-'} sections, blobs ${row.hits ?? 0} hit ${row.misses ?? 0} missed${cache ? `, again ${row.rejoinMisses ?? '-'} missed` : ''}, walked ${row.walked ?? '-'}${row.pathfinder ? `, pathfinder ${row.pathfinder}` : ''}${row.portals ? `, portals: ${row.portals.trim()}` : ''}`
         console.log(`${row.ok ? 'ok  ' : 'FAIL'} ${version.padEnd(9)} cache ${cache ? 'on ' : 'off'} hashes ${hashes ? 'on ' : 'off'} ${cells} (${Date.now() - t0} ms)`)
         for (const note of row.notes) console.log(`       ${note}`)
       }

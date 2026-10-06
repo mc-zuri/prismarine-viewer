@@ -55,7 +55,8 @@ const pages = lazyMinecraftData({
 
 // The gameplay page (target web), its server or the replay's reader of recordings (webworker): bedrock-protocol's
 // datatypes and framer, prismarine-physics' Bedrock engine (TypeScript, which webpack strips of its types itself), and
-// minecraft-data with the packets and items
+// minecraft-data with the packets and items; mineflayer-pathfinder, which tries its moves with prismarine-physics'
+// PlayerState: the fork's (the Bedrock one), not npm's, which mineflayer keeps
 function gameplay (name, source, target) {
   return lazyMinecraftData({
     name,
@@ -71,6 +72,7 @@ function gameplay (name, source, target) {
       modules: [path.join(root, 'node_modules'), 'node_modules'],
       fallback: { zlib: false },
       alias: {
+        'prismarine-physics$': path.join(root, 'node_modules/prismarine-physics-bedrock/index.js'),
         // bedrock-protocol's uuid type reads and writes UUIDs with uuid-1345, which draws on Node's crypto and os when
         // it loads: what the type uses of it
         'uuid-1345$': path.join(__dirname, 'src/gameplay/uuid.js'),
@@ -89,7 +91,9 @@ function gameplay (name, source, target) {
     plugins: [
       new webpack.ProvidePlugin({ process: 'process/browser' }),
       new webpack.ProvidePlugin({ Buffer: ['buffer', 'Buffer'] }),
-      new webpack.NormalModuleReplacementPlugin(/viewer[/\\]lib[/\\]utils/, './utils.web.js')
+      new webpack.NormalModuleReplacementPlugin(/viewer[/\\]lib[/\\]utils/, './utils.web.js'),
+      // (the fork's hooks that run its TypeScript in Node: the bundle takes the TypeScript itself)
+      new webpack.IgnorePlugin({ resourceRegExp: /[/\\]ts-hooks$/, contextRegExp: /prismarine-physics/ })
     ],
     experiments: { typescript: true },
     // bedrock-protocol compiles some of its types from the source of its own functions (compiler-minecraft.js js()),

@@ -223,6 +223,8 @@ class Connection extends EventEmitter {
     const flags = params.input_data
     const has = flag => Array.isArray(flags) ? flags.includes(flag) : !!flags?.[flag]
     if (has('start_flying')) this.flying = true
+    // (a use while sneaking places against a gate rather than opening it)
+    this.sneaking = has('sneaking') || has('sneak_down')
     if (has('stop_flying')) this.flying = false
     this.chunks.recenter(feet)
     // fallen out of the world: back to where the dimension starts
@@ -300,14 +302,14 @@ class Connection extends EventEmitter {
     this.queue(...abilitiesPacket(this.codec, { gamemode, flying: this.flying }))
   }
 
-  // a block broken or placed (an item use on it; the transaction of 1.16.201 is its own container)
+  // a block broken, placed or used (an item use on it; the transaction of 1.16.201 is its own container)
   transaction (transaction) {
     if (transaction?.transaction_type !== 'item_use') return
     const data = transaction.transaction_data ?? {}
     const pos = data.block_position
     if (!pos) return
     if (data.action_type === 'break_block') this.server.breakBlock(this, pos)
-    else if (data.action_type === 'click_block') this.server.placeBlock(this, pos, data.face, data.hotbar_slot ?? this.selectedSlot, data.held_item)
+    else if (data.action_type === 'click_block' && !this.server.useBlock(this, pos)) this.server.placeBlock(this, pos, data.face, data.hotbar_slot ?? this.selectedSlot, data.held_item)
   }
 }
 

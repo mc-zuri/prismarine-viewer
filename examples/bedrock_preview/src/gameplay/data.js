@@ -3,9 +3,10 @@
 // take it in) and nothing of the page.
 
 // The data files of a version the gameplay bundles keep: the viewer's (blocks, their states and collision shapes,
-// biomes, the version), the packets and the items (item states, the hotbar). viewer/webpack/lazyMinecraftData.js's
-// WORKER_KEYS and two more.
-const GAMEPLAY_KEYS = ['blocks', 'blockStates', 'blockCollisionShapes', 'biomes', 'version', 'protocol', 'items']
+// biomes, the version), the packets, the items (item states, the hotbar), and the materials, enchantments and effects
+// (how long a block takes to break with what, which the pathfinder weighs: prismarine-block's digTime).
+// viewer/webpack/lazyMinecraftData.js's WORKER_KEYS and five more.
+const GAMEPLAY_KEYS = ['blocks', 'blockStates', 'blockCollisionShapes', 'biomes', 'version', 'protocol', 'items', 'materials', 'enchantments', 'effects']
 
 // 'bedrock_1.26.51' -> '1.26.51'
 const bare = version => version.replace(/^bedrock_/, '')

@@ -4,7 +4,7 @@
 // passes to the viewer; and it reads nothing of a page, so the Node check runs it too.
 //
 //   events   status (stage, text)   startGame (packet, { blockHashes })   column (prismarine-chunk column)
-//            unloadColumn (x, z)    blockUpdate (pos, stateId, layer)       hotbar (slots, selected)
+//            unloadColumn (x, z)    blockUpdate (pos, stateId, layer, the state before)   hotbar (slots, selected)
 //            dimension (0 overworld, 1 nether, 2 end: change_dimension, the columns of the one before unloaded)
 //            message (text)         step (tick)                             problem (text)   close (reason)
 //

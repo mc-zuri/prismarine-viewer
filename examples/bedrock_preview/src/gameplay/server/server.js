@@ -14,6 +14,7 @@ const { recordedWorld, DIMENSIONS } = require('./recordedWorld')
 const { Connection, EYE_HEIGHT } = require('./connection')
 const { hotbarOf } = require('./startGame')
 const { runCommand } = require('./commands')
+const { gateToggle } = require('../gates')
 
 const TICK_MS = 50
 // the blocks a placed block takes the place of
@@ -43,6 +44,7 @@ function createServer ({ version, hashes = false, world: recorded, maxRadius = 8
   if (!worlds.has(startDimension)) throw new Error(`world ${recorded.meta.name} has no ${recorded.dimension}`)
   const world = worlds.get(startDimension)
   const states = statesOf(registry)
+  const toggleGate = gateToggle(registry)
   const air = registry.blocksByName.air.defaultState
   const water = new Set(['water', 'flowing_water'].map(name => registry.blocksByName[name]?.id).filter(id => id !== undefined))
 
@@ -149,6 +151,20 @@ function createServer ({ version, hashes = false, world: recorded, maxRadius = 8
       server.setBlock(pos, water.has(registry.blocksByStateId[held]?.id) ? held : air, 0, dimension)
       if (held !== air) server.setBlock(pos, air, 1, dimension)
       connection.stats.broken++
+    },
+    // a use of a block that does something: a fence gate opens or shuts (not for a player sneaking, who places
+    // against it). Whether it did.
+    useBlock (connection, pos) {
+      if (connection.sneaking) return false
+      const dimension = connection.dimension
+      const toggled = toggleGate(server.getBlockStateId(pos, 0, dimension))
+      if (toggled === null) return false
+      if (!reaches(connection, pos)) {
+        refuse(connection, pos)
+        return true
+      }
+      server.setBlock(pos, toggled, 0, dimension)
+      return true
     },
     // the block of the hotbar slot, placed against the face clicked
     placeBlock (connection, against, face, slot, held) {

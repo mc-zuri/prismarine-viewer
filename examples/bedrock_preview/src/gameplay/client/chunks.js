@@ -88,8 +88,9 @@ class ChunkStore {
       return false
     }
     const at = { x: pos.x & 15, y: pos.y, z: pos.z & 15, l: layer }
+    const before = column.getBlockStateId(at)
     column.setBlockStateId(at, stateId)
-    this.client.emit('blockUpdate', pos, stateId, layer)
+    this.client.emit('blockUpdate', pos, stateId, layer, before)
     // a block replaced takes its block entity with it (a bed, a chest broken)
     if (layer === 0 && column.getBlockEntity(at)) {
       column.removeBlockEntity(at)

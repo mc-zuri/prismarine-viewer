@@ -1,9 +1,11 @@
 // What the player does to blocks: the block it looks at (a ray from its eyes through the world's blocks, against each
-// block's shapes), breaking it (in creative, at once) and placing the block it holds against it. The client changes the
+// block's shapes), breaking it (in creative, at once), using it (a fence gate opens or shuts, unless the player sneaks)
+// and placing the block it holds against it. The client changes the
 // block itself first, as the game's client predicts, and tells the server with an item use (inventory_transaction);
 // the server's update_block confirms the block or puts back what it is. The hotbar is the inventory's first nine
 // slots, as the server gave them.
 const { heldItemWire, itemOf } = require('../protocol/items')
+const { gateToggle } = require('../gates')
 
 // how far the player reaches (creative)
 const REACH = 6
@@ -129,17 +131,42 @@ class Interaction {
     return true
   }
 
-  // the held block, against the face aimed at
-  placeBlock (target) {
+  // Where the held block would go against the face aimed at, and its state: null where it would not (nothing in hand,
+  // nothing replaceable there, the player in the way)
+  placement (target) {
     const { client } = this
     const item = this.held
-    if (!target || !item || client.gamemode === 'spectator') return false
+    if (!target || !item || client.gamemode === 'spectator') return null
     const { registry, chunks } = client
     const [dx, dy, dz] = FACES[target.face]
     const at = { x: target.pos.x + dx, y: target.pos.y + dy, z: target.pos.z + dz }
     const there = registry.blocksByStateId[chunks.getBlockStateId(at) ?? -1]?.name ?? 'air'
     const stateId = item.blockRuntimeId || registry.blocksByName[item.name]?.defaultState
-    if (!REPLACEABLE.has(there) || stateId === undefined || this.inPlayer(at)) return false
+    if (!REPLACEABLE.has(there) || stateId === undefined || this.inPlayer(at)) return null
+    return { at, stateId }
+  }
+
+  // The state a use of the block aimed at would turn it to (a fence gate opened or shut); null where a use does
+  // nothing to it, or the player sneaks (it then places against it)
+  useOf (target) {
+    if (!target || this.client.controls.sneak || this.client.gamemode === 'spectator') return null
+    return gateToggle(this.client.registry)(target.stateId)
+  }
+
+  // the use of the block aimed at: a gate opens or shuts; else the held block goes against the face aimed at
+  placeBlock (target) {
+    const { client } = this
+    const { registry, chunks } = client
+    const used = this.useOf(target)
+    if (used !== null) {
+      chunks.setBlock(target.pos, used)
+      this.predictions.set(`${target.pos.x},${target.pos.y},${target.pos.z}`, client.movement.last)
+      this.use('click_block', target)
+      return true
+    }
+    const placement = this.placement(target)
+    if (!placement) return false
+    const { at, stateId } = placement
     chunks.setBlock(at, stateId)
     if ((chunks.getBlockStateId(at, 1) ?? 0) !== registry.blocksByName.air.defaultState) chunks.setBlock(at, registry.blocksByName.air.defaultState, 1)
     this.predictions.set(`${at.x},${at.y},${at.z}`, this.client.movement.last)

@@ -10,8 +10,9 @@
 //   walk       40 ticks forward on the ground: the player goes 3 blocks or more, stays on the ground, and the server
 //              has it where the client does
 //   build      a block placed and broken is placed and broken in both worlds
-//   pathfinder in the showcase: mineflayer-pathfinder walks the player round a wall, breaks into a box of glass and
-//              pillars up onto a pillar, and the server has it where the client does
+//   pathfinder in the showcase: mineflayer-pathfinder walks the player round a wall, breaks into a box of glass,
+//              pillars up onto a pillar, opens a gate and swims across the pond in creative without flying, and the
+//              server has it where the client does
 //   portals    in a recorded world with them: the overworld's nether portal takes the player to the nether, its end
 //              portal to the end, each dimension's columns the same on both sides; /dimension takes it back
 //   commands   /setblock, /tp, /gamemode survival and /time do what they say
@@ -271,11 +272,12 @@ async function play (version, cache, hashes) {
       if (connection.stats.heldMismatches) fail('the held item is not the hotbar\'s')
     }
 
-    // the pathfinder: three walks, each must arrive with the server having the player where the client has it:
+    // the pathfinder: five walks, each must arrive (and not flying) with the server having the player where the client has it:
     //   round      back to the block it started on, past a wall of glass 3 wide across the lane
     //   break in   into a box of glass shut all round (it breaks its way in)
     //   build up   onto a pillar of glass 3 high (it pillars up beside it, placing blocks under itself)
     //   gate       into a box of glass with a fence gate in its south wall, not breaking blocks (it opens the gate)
+    //   swim       across the pond, in creative (its jumps in the water are no double tap)
     if (!recorded) {
       const back = { x: Math.floor(start.x), y: G, z: Math.floor(start.z) }
       const walks = [
@@ -288,7 +290,9 @@ async function play (version, cache, hashes) {
           options: { dig: false },
           setup: [`/fill ${back.x - 5} ${G} ${back.z - 7} ${back.x - 3} ${G + 2} ${back.z - 5} glass`, `/fill ${back.x - 4} ${G} ${back.z - 6} ${back.x - 4} ${G + 1} ${back.z - 5} air`, `/setblock ${back.x - 4} ${G} ${back.z - 5} fence_gate`],
           opened: { x: back.x - 4, y: G, z: back.z - 5 }
-        }
+        },
+        // across the pond, in creative: the jump it swims with is not the double tap that flies
+        { name: 'swim', goal: { x: -22, y: G - 1, z: 12 }, setup: [`/tp -11.5 ${G - 1} 12.5`] }
       ]
       const pathfinder = attachPathfinder(client, { humanLike: true })
       const results = []
@@ -313,6 +317,7 @@ async function play (version, cache, hashes) {
           const counts = { broken: connection.stats.broken - broken, placed: connection.stats.placed - placed }
           results.push(`${walk.name} ${ended} (${routes} routes, ${counts.broken} broken, ${counts.placed} placed)`)
           if (ended !== 'arrived') fail(`pathfinder ${walk.name}: ${ended}`)
+          if (client.player.bedrock?.flying) fail(`pathfinder ${walk.name}: the player flies`)
           if (Math.floor(at.x) !== walk.goal.x || Math.floor(at.z) !== walk.goal.z || Math.floor(at.y + 1e-3) !== walk.goal.y) fail(`pathfinder ${walk.name}: at ${at}, not ${walk.goal.x} ${walk.goal.y} ${walk.goal.z}`)
           if (walk.broken && !counts.broken) fail(`pathfinder ${walk.name}: nothing broken`)
           if (walk.placed && !counts.placed) fail(`pathfinder ${walk.name}: nothing placed`)

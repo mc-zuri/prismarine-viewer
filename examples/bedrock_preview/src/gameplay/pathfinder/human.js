@@ -5,7 +5,9 @@
 // a few blocks ahead rather than on the horizon; the walking keys wait for the facing (no forward or back while the
 // player faces more than WALK_ANGLE away from where the pathfinder looks, no sprint more than SPRINT_ANGLE away), and a
 // jump to get somewhere waits for the walk. tick() turns and presses, once a tick. Either way the jump key is not
-// pressed anew in the air: it is pressed on the ground or in a liquid, and held on from there (a pillar's jump).
+// pressed anew in the air: it is pressed on the ground or in a liquid, and held on from there (a pillar's jump); and for
+// a player that may fly, it is not pressed anew within FLY_TAP_TICKS of the last press, the double tap that flies (as
+// the pathfinder swims, it lets go of jump and wants it again a few ticks later).
 const { CONTROLS, wrapDegrees, facing, lookToward } = require('./body')
 
 const EASE = 0.5
@@ -22,6 +24,8 @@ const SPRINT_ANGLE = 20
 const LOOK_AHEAD = 4
 const LOOK_HEIGHT = 1
 const REST_PITCH = { up: -30, down: 40 }
+// two presses of jump fewer ticks apart than this start flying (the engine's double tap)
+const FLY_TAP_TICKS = 7
 
 // a tick's turn toward what is left: half of it, within the most a tick turns, all of it once small
 function turn (left, most) {
@@ -47,6 +51,9 @@ class Steering {
     this.target = undefined
     // the keys the pathfinder holds
     this.wanted = Object.fromEntries(CONTROLS.map(control => [control, false]))
+    // the jump key as tick() last gave it to the client, and the ticks since it was last pressed anew
+    this.jumping = false
+    this.sinceJump = Infinity
   }
 
   // The walking look: toward the next step; the pitch is the pathfinder's, or with humanLike the route's ahead. Walking
@@ -76,6 +83,7 @@ class Steering {
   // Lets go of every key, at once
   clearControlStates () {
     for (const control of CONTROLS) this.wanted[control] = false
+    this.jumping = false
     this.body.clearControlStates()
   }
 
@@ -100,9 +108,11 @@ class Steering {
     const { body } = this
     const entity = body.entity
     const state = body.state
-    // held on, or pressed where a jump is a jump
-    const jump = this.wanted.jump && (body.controls.jump || entity.onGround || !!state?.isInWater || !!state?.isInLava)
-    if (!this.enabled) return body.setControlState('jump', jump)
+    // held on, or pressed where a jump is a jump; not pressed anew where it would be a double tap
+    const tap = !this.jumping && !!state?.mayFly && this.sinceJump < FLY_TAP_TICKS
+    const jump = this.wanted.jump && (body.controls.jump || entity.onGround || !!state?.isInWater || !!state?.isInLava) && !tap
+    this.sinceJump++
+    if (!this.enabled) return this.pressJump(jump)
     if (this.target) {
       const yaw = turn(wrapDegrees(this.target.yaw - entity.yaw), MAX_YAW)
       const pitch = turn(this.target.pitch - entity.pitch, MAX_PITCH)
@@ -118,7 +128,14 @@ class Steering {
     body.setControlState('right', wanted.right)
     body.setControlState('sneak', wanted.sneak)
     body.setControlState('sprint', wanted.sprint && walk && away <= SPRINT_ANGLE)
-    body.setControlState('jump', jump && (walk || !wanted.forward))
+    this.pressJump(jump && (walk || !wanted.forward))
+  }
+
+  // The jump key, to the client: a press anew counts from 0
+  pressJump (pressed) {
+    if (pressed && !this.jumping) this.sinceJump = 0
+    this.jumping = pressed
+    this.body.setControlState('jump', pressed)
   }
 
   // the pitch toward the route LOOK_AHEAD blocks ahead, at a person's chest over it; none without a route

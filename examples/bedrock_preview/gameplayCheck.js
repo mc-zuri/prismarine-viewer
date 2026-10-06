@@ -279,10 +279,13 @@ async function play (version, cache, hashes) {
     //   build up   onto a pillar of glass 3 high (it pillars up beside it, placing blocks under itself)
     //   gate       into a box of glass with a fence gate in its south wall, not breaking blocks (it opens the gate)
     //   swim       across the pond, in creative (its jumps in the water are no double tap)
+    //   lake ...   a lake 6 deep: across it, down to its floor, along its floor, from there out onto the bank, and into
+    //              it from the bank, every tick in the water but the first a prediction's
     // once turning and pressing as a person does (humanLike) and once as the pathfinder says; each tick its prediction
     // of the tick is the tick, and the inputs the client sent are those of a prediction (audit.js)
     if (!recorded) {
       const back = { x: Math.floor(start.x), y: G, z: Math.floor(start.z) }
+      const lake = [`/fill -30 ${G - 6} 21 -10 ${G - 1} 30 water`, `/fill -30 ${G} 21 -10 ${G + 3} 30 air`]
       const walks = [
         { name: 'round', goal: back, setup: [`/fill -1 ${G} ${back.z - 3} 1 ${G + 1} ${back.z - 3} glass`] },
         { name: 'break in', goal: { x: back.x, y: G, z: back.z - 6 }, setup: [`/fill ${back.x - 1} ${G} ${back.z - 7} ${back.x + 1} ${G + 2} ${back.z - 5} glass`, `/fill ${back.x} ${G} ${back.z - 6} ${back.x} ${G + 1} ${back.z - 6} air`], broken: true },
@@ -295,7 +298,13 @@ async function play (version, cache, hashes) {
           opened: { x: back.x - 4, y: G, z: back.z - 5 }
         },
         // across the pond, in creative: the jump it swims with is not the double tap that flies
-        { name: 'swim', goal: { x: -22, y: G - 1, z: 12 }, setup: [`/tp -11.5 ${G - 1} 12.5`] }
+        { name: 'swim', goal: { x: -22, y: G - 1, z: 12 }, setup: [`/tp -11.5 ${G - 1} 12.5`] },
+        // a lake 6 deep west of the lane: across it, down to its floor, up from there out onto the bank, and into it
+        { name: 'lake across', goal: { x: -29, y: G - 1, z: 25 }, setup: [...lake, `/tp -11.5 ${G - 1} 25.5`], swims: true, afloat: true },
+        { name: 'lake down', goal: { x: -20, y: G - 6, z: 25 }, setup: [...lake, `/tp -11.5 ${G - 1} 25.5`], swims: true },
+        { name: 'lake floor', goal: { x: -12, y: G - 6, z: 29 }, setup: [...lake, `/tp -28.5 ${G - 6} 22.5`], swims: true },
+        { name: 'lake out', goal: { x: -6, y: G, z: 25 }, setup: [...lake, `/tp -20.5 ${G - 6} 25.5`], swims: true },
+        { name: 'lake in', goal: { x: -25, y: G - 1, z: 25 }, setup: [...lake, `/tp -6.5 ${G} 25.5`], swims: true, afloat: true }
       ]
       const pathfinder = attachPathfinder(client, { humanLike: true })
       const audit = attachAudit(pathfinder)
@@ -306,7 +315,8 @@ async function play (version, cache, hashes) {
         const name = `${walk.name}${humanLike ? '' : ' (not humanLike)'}`
         for (const line of walk.setup) client.chat(line)
         pathfinder.setOptions({ dig: true, ...walk.options, humanLike })
-        await session.tick(3)
+        await session.tick(walk.swims ? 30 : 3)
+        for (const key of Object.keys(audit.counts)) audit.counts[key] = 0
         let ended = null
         let routes = 0
         const onRoute = route => { if (route) routes++ }
@@ -326,11 +336,15 @@ async function play (version, cache, hashes) {
           results.push(`${name} ${ended} (${routes} routes, ${counts.broken} broken, ${counts.placed} placed)`)
           if (ended !== 'arrived') fail(`pathfinder ${name}: ${ended}`)
           if (client.player.bedrock?.flying) fail(`pathfinder ${name}: the player flies`)
-          if (Math.floor(at.x) !== walk.goal.x || Math.floor(at.z) !== walk.goal.z || Math.floor(at.y + 1e-3) !== walk.goal.y) fail(`pathfinder ${name}: at ${at}, not ${walk.goal.x} ${walk.goal.y} ${walk.goal.z}`)
+          // (afloat, the feet bob about the top of the water: the plugin's goal takes the cell under them too)
+          const feetY = Math.floor(at.y + 1e-3)
+          if (Math.floor(at.x) !== walk.goal.x || Math.floor(at.z) !== walk.goal.z || (feetY !== walk.goal.y && !(walk.afloat && feetY === walk.goal.y - 1))) fail(`pathfinder ${name}: at ${at}, not ${walk.goal.x} ${walk.goal.y} ${walk.goal.z}`)
           if (walk.broken && !counts.broken) fail(`pathfinder ${name}: nothing broken`)
           if (walk.placed && !counts.placed) fail(`pathfinder ${name}: nothing placed`)
           if (walk.opened && !/open_bit=(1|true)/.test(gateState(server, walk.opened))) fail(`pathfinder ${name}: the gate is not open`)
           if (Math.abs(connection.feet.x - at.x) > 1e-3 || Math.abs(connection.feet.y - at.y) > 1e-3 || Math.abs(connection.feet.z - at.z) > 1e-3) fail(`pathfinder ${name}: the server has the player at ${connection.feet.x},${connection.feet.y},${connection.feet.z}`)
+          // swimming, every tick but the first (the walk's plan) is a prediction's
+          if (walk.swims && audit.counts.unpredicted > 1) fail(`pathfinder ${name}: ${audit.counts.unpredicted} of ${audit.counts.ticks} ticks walked without a prediction`)
           if (mismatch) fail(`pathfinder ${name}: tick ${mismatch.t} at ${mismatch.at.join(' ')} is not the ${mismatch.kind === 'input' ? 'inputs predicted' : 'tick predicted'}: ${mismatch.fields.slice(0, 3).map(f => `${f.field} ${JSON.stringify(f.predicted)} for ${JSON.stringify(f.actual)}`).join(', ')}`)
         }
         pathfinder.off('route', onRoute)

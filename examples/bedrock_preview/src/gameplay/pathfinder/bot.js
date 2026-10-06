@@ -46,9 +46,10 @@ function createBot (body, blockAt, steering = new Steering(body)) {
   }
 
   const entity = {
-    // copies: the pathfinder stops the bot by writing its velocity and position, which here are the engine's
-    get position () { return live().pos.clone() },
-    get velocity () { return live().vel.clone() },
+    // exact copies (Vec3.clone turns a -0 into 0): the pathfinder stops the bot by writing its velocity and position,
+    // which here are the engine's
+    get position () { return cloneValue(live().pos) },
+    get velocity () { return cloneValue(live().vel) },
     get onGround () { return live().onGround },
     get isInWater () { return !!live().isInWater },
     get isInLava () { return !!live().isInLava },

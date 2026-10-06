@@ -11,8 +11,9 @@
 //              has it where the client does
 //   build      a block placed and broken is placed and broken in both worlds
 //   pathfinder in the showcase: mineflayer-pathfinder walks the player round a wall, breaks into a box of glass,
-//              pillars up onto a pillar, opens a gate and swims across the pond in creative without flying, and the
-//              server has it where the client does
+//              pillars up onto a pillar, opens a gate, swims across the pond in creative without flying and through a
+//              lake; in explore (--world) from the ocean onto the shore and up a cliff; the server has it where the
+//              client does, and every tick is the tick the pathfinder predicted
 //   portals    in a recorded world with them: the overworld's nether portal takes the player to the nether, its end
 //              portal to the end, each dimension's columns the same on both sides; /dimension takes it back
 //   commands   /setblock, /tp, /gamemode survival and /time do what they say
@@ -76,6 +77,18 @@ const recorded = worldName && {
   meta: JSON.parse(fs.readFileSync(path.join(__dirname, 'public/worlds', recordedName + '.json'), 'utf8')),
   bin: require('zlib').gunzipSync(fs.readFileSync(path.join(__dirname, 'public/worlds', recordedName + '.bin'))),
   dimension: recordedDimension
+}
+// pathfinder walks in a recorded world, by its name: in explore, from the ocean the gameplay page's walk view showed
+// the pathfinder stuck in, across the water, onto the shore and up the cliff over it
+// (in survival: a player that may fly sinks otherwise)
+const ocean = ['/gamemode survival', '/tp -801.5 62.5 151.5']
+const WORLD_WALKS = {
+  explore: [
+    { name: 'cliff top', goal: { x: -812, y: 78, z: 110 }, setup: ocean, settle: true },
+    { name: 'ocean', goal: { x: -794, y: 62, z: 166 }, setup: ocean, settle: true, swims: true, afloat: true },
+    { name: 'ocean near', goal: { x: -797, y: 62, z: 159 }, setup: ocean, settle: true, swims: true, afloat: true },
+    { name: 'shore', goal: { x: -810, y: 76, z: 142 }, setup: ocean, settle: true }
+  ]
 }
 const caches = option('--cache', [false, true])
 const hashings = option('--hashes', [false, true])
@@ -273,7 +286,8 @@ async function play (version, cache, hashes) {
       if (connection.stats.heldMismatches) fail('the held item is not the hotbar\'s')
     }
 
-    // the pathfinder: five walks, each must arrive (and not flying) with the server having the player where the client has it:
+    // the pathfinder: in the showcase these walks (in a recorded world, its WORLD_WALKS), each must arrive (and not
+    // flying) with the server having the player where the client has it:
     //   round      back to the block it started on, past a wall of glass 3 wide across the lane
     //   break in   into a box of glass shut all round (it breaks its way in)
     //   build up   onto a pillar of glass 3 high (it pillars up beside it, placing blocks under itself)
@@ -283,10 +297,10 @@ async function play (version, cache, hashes) {
     //              it from the bank, every tick in the water but the first a prediction's
     // once turning and pressing as a person does (humanLike) and once as the pathfinder says; each tick its prediction
     // of the tick is the tick, and the inputs the client sent are those of a prediction (audit.js)
-    if (!recorded) {
+    if (!recorded || WORLD_WALKS[recordedName]) {
       const back = { x: Math.floor(start.x), y: G, z: Math.floor(start.z) }
       const lake = [`/fill -30 ${G - 6} 21 -10 ${G - 1} 30 water`, `/fill -30 ${G} 21 -10 ${G + 3} 30 air`]
-      const walks = [
+      const showcase = [
         { name: 'round', goal: back, setup: [`/fill -1 ${G} ${back.z - 3} 1 ${G + 1} ${back.z - 3} glass`] },
         { name: 'break in', goal: { x: back.x, y: G, z: back.z - 6 }, setup: [`/fill ${back.x - 1} ${G} ${back.z - 7} ${back.x + 1} ${G + 2} ${back.z - 5} glass`, `/fill ${back.x} ${G} ${back.z - 6} ${back.x} ${G + 1} ${back.z - 6} air`], broken: true },
         { name: 'build up', goal: { x: back.x + 3, y: G + 3, z: back.z - 6 }, setup: [`/fill ${back.x + 1} ${G} ${back.z - 8} ${back.x + 5} ${G + 4} ${back.z - 4} air`, `/fill ${back.x + 3} ${G} ${back.z - 6} ${back.x + 3} ${G + 2} ${back.z - 6} glass`], placed: true },
@@ -306,6 +320,7 @@ async function play (version, cache, hashes) {
         { name: 'lake out', goal: { x: -6, y: G, z: 25 }, setup: [...lake, `/tp -20.5 ${G - 6} 25.5`], swims: true },
         { name: 'lake in', goal: { x: -25, y: G - 1, z: 25 }, setup: [...lake, `/tp -6.5 ${G} 25.5`], swims: true, afloat: true }
       ]
+      const walks = recorded ? WORLD_WALKS[recordedName] : showcase
       const pathfinder = attachPathfinder(client, { humanLike: true })
       const audit = attachAudit(pathfinder)
       let mismatch = null
@@ -316,6 +331,7 @@ async function play (version, cache, hashes) {
         for (const line of walk.setup) client.chat(line)
         pathfinder.setOptions({ dig: true, ...walk.options, humanLike })
         await session.tick(walk.swims ? 30 : 3)
+        if (walk.settle) await session.until('the world around the walk', 600, () => connection.chunks.settled && !pendingSections(client))
         for (const key of Object.keys(audit.counts)) audit.counts[key] = 0
         let ended = null
         let routes = 0
@@ -352,7 +368,7 @@ async function play (version, cache, hashes) {
         pathfinder.stop()
       }
       const first = client.player.pos.clone()
-      for (const humanLike of [true, false]) {
+      for (const humanLike of [false, true]) {
         client.chat(`/tp ${first.x} ${first.y} ${first.z}`)
         for (const walk of walks) await walkOnce(walk, humanLike)
       }

@@ -69,6 +69,8 @@ class Pathfinder extends EventEmitter {
     this.tools = new Map()
     // whether the plan sprints: the option, and the player able to
     this.sprints = true
+    // whether the plan breaks blocks: the option, in creative (the hands break blocks in creative only, hands.js)
+    this.digs = true
     // the plugin's ticks are held while its then() of a placement settles
     this.held = false
     // (a pathfinder that cannot start says so, and leaves the client to play)
@@ -140,7 +142,12 @@ class Pathfinder extends EventEmitter {
   useOptions () {
     this.bot.steering.enabled = this.options.humanLike
     this.sprints = this.options.sprint && this.canSprint()
-    this.bot.pathfinder.setMovements(bedrockMovements(this.bot, { ...this.options, sprint: this.sprints }))
+    this.digs = this.options.dig && this.canDig()
+    this.bot.pathfinder.setMovements(bedrockMovements(this.bot, { ...this.options, sprint: this.sprints, dig: this.digs }))
+  }
+
+  canDig () {
+    return this.client.gamemode === 'creative'
   }
 
   canSprint () {
@@ -224,6 +231,8 @@ class Pathfinder extends EventEmitter {
     }
     // hungry, or fed again: the plan sprints as the player can
     if (this.options.sprint && this.canSprint() !== this.sprints) this.useOptions()
+    // in creative, or out of it: the plan breaks blocks as the player can
+    else if (this.options.dig && this.canDig() !== this.digs) this.useOptions()
     try {
       this.bot.steering.route = this.path
       if (!this.held) this.bot.emit('physicsTick')

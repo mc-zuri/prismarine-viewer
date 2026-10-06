@@ -21,6 +21,9 @@ const TICK_MS = 50
 const REPLACEABLE = new Set(['air', 'water', 'flowing_water', 'lava', 'flowing_lava', 'short_grass', 'tallgrass', 'fern', 'deadbush', 'snow_layer', 'vine', 'seagrass'])
 // how far from its eyes a player reaches a block (creative)
 const REACH = 8
+// a boat floats with its position this far under the top of the water (the engine's buoyancy, at rest)
+const BOAT_FLOAT = 0.05
+const isBoat = name => /(^|_)boat$/.test(name ?? '')
 
 // The server. version: '1.26.51'; hashes: name block states by their hashes (from 1.19.80); world: a recorded world
 // ({ meta, bin, dimension }: worldImport.js's files, the second unzipped, and the dimension to play: overworld, nether
@@ -96,6 +99,9 @@ function createServer ({ version, hashes = false, world: recorded, maxRadius = 8
     connections,
     hotbar: hotbarOf(registry),
     gameModes: mapperValues(types, 'GameMode').filter(mode => ['survival', 'creative', 'adventure', 'spectator'].includes(mode)),
+    // the entities players put in the world (boats), by id (runtime and unique alike)
+    entities: new Map(),
+    nextEntityId: 100n,
     tick: 0,
     time: 1000,
     // the dimension players start in (0 overworld, 1 nether, 2 end)
@@ -179,6 +185,51 @@ function createServer ({ version, hashes = false, world: recorded, maxRadius = 8
       server.setBlock(at, item.stateId, 0, dimension)
       if (server.getBlockStateId(at, 1, dimension) !== air) server.setBlock(at, air, 1, dimension)
       connection.stats.placed++
+    },
+
+    // A boat of the held item put on the water clicked: on its top, heading the way the player faces; the item goes out
+    // of creative. Whether the held item is a boat.
+    placeBoat (connection, pos, slot) {
+      const item = connection.hotbar[slot]
+      if (!isBoat(item?.name)) return false
+      const dimension = connection.dimension
+      const isWater = at => water.has(registry.blocksByStateId[server.getBlockStateId(at, 0, dimension)]?.id)
+      if (!reaches(connection, pos) || !isWater(pos) || isWater({ ...pos, y: pos.y + 1 })) {
+        connection.stats.refused++
+        return true
+      }
+      const id = server.nextEntityId++
+      // (the boat heads along +x at yaw 0: a quarter turn from the player's look)
+      const boat = { id, type: 'minecraft:boat', item: item.name, dimension, pos: { x: pos.x + 0.5, y: Math.fround(pos.y + 1 - BOAT_FLOAT), z: pos.z + 0.5 }, yaw: (connection.yaw ?? 0) + 90, rider: null }
+      server.entities.set(id, boat)
+      for (const c of connections) if (c.dimension === dimension) c.addEntity(boat)
+      if (connection.gamemode !== 'creative') connection.setHotbarSlot(slot, item.count > 1 ? { ...item, count: item.count - 1 } : null)
+      connection.stats.boats++
+      return true
+    },
+    // the player gets on a boat within reach (no one in it)
+    rideBoat (connection, id) {
+      const boat = server.entities.get(BigInt(id))
+      if (!boat || boat.rider || connection.riding || !reaches(connection, { x: boat.pos.x - 0.5, y: boat.pos.y, z: boat.pos.z - 0.5 })) return
+      boat.rider = connection
+      connection.riding = boat
+      for (const c of connections) if (c.dimension === boat.dimension) c.link(boat, 1)
+    },
+    leaveBoat (connection) {
+      const boat = connection.riding
+      if (!boat) return
+      boat.rider = null
+      connection.riding = null
+      for (const c of connections) if (c.dimension === boat.dimension) c.link(boat, 0)
+    },
+    // a hit breaks a boat no one rides: out of creative its item goes back into the hotbar
+    breakBoat (connection, id) {
+      const boat = server.entities.get(BigInt(id))
+      if (!boat || boat.rider || !reaches(connection, { x: boat.pos.x - 0.5, y: boat.pos.y, z: boat.pos.z - 0.5 })) return
+      server.entities.delete(boat.id)
+      for (const c of connections) if (c.dimension === boat.dimension) c.removeEntity(boat)
+      const item = registry.itemsByName[boat.item]
+      if (connection.gamemode !== 'creative' && item) connection.give({ name: item.name, networkId: item.id, count: 1, metadata: 0, blockRuntimeId: 0 })
     },
 
     // the item of the hotbar slot used in the air: a firework rocket goes (one of the stack, but in creative); the

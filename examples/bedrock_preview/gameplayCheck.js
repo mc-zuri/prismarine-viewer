@@ -319,6 +319,48 @@ async function play (version, cache, hashes) {
       row.elytra = `glided ${seen.gliding} ticks, boosted ${seen.boosted}`
     }
 
+    // a boat, in survival: put on a lake, got on (the server links the player), driven forward (the engine paddles it;
+    // the server has it where the client does, where the input reports it), left with the sneak key, and broken: its
+    // item back in the hotbar
+    if (!recorded) {
+      const boatItem = server.registry.itemsByName.oak_boat ? 'oak_boat' : 'boat'
+      for (const line of ['/gamemode survival', `/fill -30 ${G - 6} 21 -10 ${G - 1} 30 water`, `/fill -30 ${G} 21 -10 ${G + 3} 30 air`, `/replaceitem entity @s slot.hotbar 8 ${boatItem} 1`, `/tp -8.5 ${G} 25.5`]) client.chat(line)
+      await session.tick(10)
+      // (facing west, along the lake: the boat heads the way the player faces; a teleport turns the look)
+      client.setLook(Math.PI / 2, 0)
+      await session.tick(3)
+      client.selectSlot(8)
+      if (!client.interaction.placeBoat({ pos: { x: -11, y: G - 1, z: 25 } })) fail('no boat put on the water')
+      await session.tick(3)
+      const boat = [...client.entities.values()].find(entity => /boat/.test(entity.type))
+      if (!boat) fail('the boat did not appear')
+      if (connection.hotbar[8]) fail('the boat item is still in the hotbar')
+      client.interactEntity(boat)
+      await session.tick(3)
+      if (!client.player.vehicle || !connection.riding) fail(`not riding: the client ${!!client.player.vehicle}, the server ${!!connection.riding}`)
+      const from = { ...client.player.pos }
+      client.setControl('forward', true)
+      await session.tick(40)
+      client.setControl('forward', false)
+      const driven = Math.hypot(client.player.pos.x - from.x, client.player.pos.z - from.z)
+      if (driven < 5) fail(`the boat went ${driven.toFixed(2)} blocks`)
+      const reported = server.entities.get(boat.runtimeId)?.pos
+      if (client.movement.reportsVehicle && (!reported || Math.abs(reported.x - boat.pos.x) > 1e-3 || Math.abs(reported.z - boat.pos.z) > 1e-3)) fail(`the server has the boat at ${JSON.stringify(reported)}, the client at ${JSON.stringify(boat.pos)}`)
+      client.setControl('sneak', true)
+      await session.tick(1)
+      client.setControl('sneak', false)
+      await session.tick(3)
+      if (client.player.vehicle || connection.riding) fail(`still riding: the client ${!!client.player.vehicle}, the server ${!!connection.riding}`)
+      client.attackEntity(boat)
+      await session.tick(3)
+      if (client.entities.size || server.entities.size) fail(`the boat is not broken: ${client.entities.size} on the client, ${server.entities.size} on the server`)
+      if (connection.hotbar[8]?.name !== boatItem || client.interaction.hotbar[8]?.name !== boatItem) fail('the boat item is not back in the hotbar')
+      for (const line of [`/replaceitem entity @s slot.hotbar 8 ${server.hotbar[8].name} 64`, '/gamemode creative', `/tp ${start.x} ${start.y} ${start.z}`]) client.chat(line)
+      client.selectSlot(0)
+      await session.tick(10)
+      row.boat = `driven ${driven.toFixed(1)} blocks`
+    }
+
     // the pathfinder: in the showcase these walks (in a recorded world, its WORLD_WALKS), each must arrive (and not
     // flying) with the server having the player where the client has it:
     //   round      back to the block it started on, past a wall of glass 3 wide across the lane
@@ -566,7 +608,7 @@ async function main () {
         const t0 = Date.now()
         const row = await play(version, cache, hashes)
         if (!row.ok) failed++
-        const cells = `${row.columns ?? '-'} columns ${row.sections ?? '-'} sections, blobs ${row.hits ?? 0} hit ${row.misses ?? 0} missed${cache ? `, again ${row.rejoinMisses ?? '-'} missed` : ''}, walked ${row.walked ?? '-'}${row.elytra ? `, elytra ${row.elytra}` : ''}${row.pathfinder ? `, pathfinder ${row.pathfinder}` : ''}${row.portals ? `, portals: ${row.portals.trim()}` : ''}`
+        const cells = `${row.columns ?? '-'} columns ${row.sections ?? '-'} sections, blobs ${row.hits ?? 0} hit ${row.misses ?? 0} missed${cache ? `, again ${row.rejoinMisses ?? '-'} missed` : ''}, walked ${row.walked ?? '-'}${row.elytra ? `, elytra ${row.elytra}` : ''}${row.boat ? `, boat ${row.boat}` : ''}${row.pathfinder ? `, pathfinder ${row.pathfinder}` : ''}${row.portals ? `, portals: ${row.portals.trim()}` : ''}`
         console.log(`${row.ok ? 'ok  ' : 'FAIL'} ${version.padEnd(9)} cache ${cache ? 'on ' : 'off'} hashes ${hashes ? 'on ' : 'off'} ${cells} (${Date.now() - t0} ms)`)
         for (const note of row.notes) console.log(`       ${note}`)
       }

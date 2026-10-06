@@ -16,11 +16,20 @@
 // A player standing in a portal is taken to the dimension it leads to (portals.js): change_dimension, the columns of
 // the dimension around where it arrives, and play_status player_spawn once they are out. A portal takes a player only
 // once it has stepped out of the one it came through (or spawned in).
+//
+// A boat item used on water puts a boat there (add_entity); a use of the boat (an item use on the entity) gets on it
+// (set_entity_link), the player's interact leave_vehicle takes it off, and a hit breaks it, the item back in the
+// hotbar out of creative. The player drives it: its input reports the boat (from 1.20.71), which the server keeps.
 const { EventEmitter } = require('events')
 const { createCodec } = require('../protocol/codec')
 const { PacketChannel } = require('../protocol/channel')
 const { ChunkStreamer } = require('./chunks')
 const { EYE_HEIGHT, PLAYER_ID, buildStartGame, abilitiesPacket, inventoryPacket, armorPacket, slotPacket } = require('./startGame')
+
+const HOTBAR_SIZE = 9
+const MAX_STACK = 64
+// the rider's eyes over the boat's position (a boat driver's seat)
+const SEAT_EYES = Math.fround(1.0200101)
 const { PORTAL_TICKS, portalDestination } = require('./portals')
 const { DIMENSIONS } = require('./recordedWorld')
 
@@ -86,11 +95,13 @@ class Connection extends EventEmitter {
     // what the player holds: its hotbar (the server's to start with) and the armour it wears (head, chest, legs, feet)
     this.hotbar = server.hotbar.map(item => ({ ...item }))
     this.armor = [null, null, null, null]
+    // the boat it rides
+    this.riding = null
     this.chunks = new ChunkStreamer(this, server)
     this.spawnChunk = { x: Math.floor(this.feet.x) >> 4, z: Math.floor(this.feet.z) >> 4 }
     this.spawnSent = false
     this.columnsAroundSpawn = 0
-    this.stats = { placed: 0, broken: 0, refused: 0, heldMismatches: 0, inputs: 0, used: 0 }
+    this.stats = { placed: 0, broken: 0, refused: 0, heldMismatches: 0, inputs: 0, used: 0, boats: 0 }
   }
 
   queue (name, params) {
@@ -153,6 +164,13 @@ class Connection extends EventEmitter {
         return
       case 'inventory_transaction':
         return this.transaction(params.transaction)
+      case 'interact':
+        if (params.action_id === 'leave_vehicle') server.leaveBoat(this)
+        return
+      case 'move_entity':
+        // (before 1.20.71 the driver tells where its boat is so)
+        if (this.riding && BigInt(params.runtime_entity_id) === this.riding.id) this.riding.pos = { ...params.position }
+        return
       case 'mob_equipment':
         this.selectedSlot = params.selected_slot ?? params.slot ?? 0
     }
@@ -208,14 +226,48 @@ class Connection extends EventEmitter {
   spawn () {
     this.spawnSent = true
     this.queue('play_status', { status: 'player_spawn' })
+    for (const entity of this.server.entities.values()) if (entity.dimension === this.dimension) this.addEntity(entity)
+  }
+
+  // an entity (a boat) appears, or goes; a rider gets on it, or off (link type 1: the driver, 0: off)
+  addEntity (entity) {
+    const position = { x: entity.pos.x, y: entity.pos.y, z: entity.pos.z }
+    // (1.16.201 names the ids entity_id_self and runtime_entity_id, and has the position's coordinates as fields)
+    this.queue('add_entity', { unique_id: entity.id, entity_id_self: entity.id, runtime_id: entity.id, runtime_entity_id: entity.id, entity_type: entity.type, position, ...position, velocity: { x: 0, y: 0, z: 0 }, pitch: 0, yaw: entity.yaw, head_yaw: entity.yaw, body_yaw: entity.yaw })
+  }
+
+  removeEntity (entity) {
+    this.queue('remove_entity', { entity_id_self: entity.id })
+  }
+
+  link (entity, type) {
+    this.queue('set_entity_link', { link: { ridden_entity_id: entity.id, rider_entity_id: PLAYER_ID, type, immediate: false, rider_initiated: true, angular_velocity: 0 } })
+  }
+
+  // an item into the hotbar: onto a stack of it there, else into a free slot; the slot, or -1 when it is full
+  give (item) {
+    const hotbar = this.hotbar
+    let slot = hotbar.findIndex((held, i) => i < HOTBAR_SIZE && held?.name === item.name && held.count + item.count <= MAX_STACK)
+    const count = slot >= 0 ? hotbar[slot].count + item.count : item.count
+    if (slot < 0) slot = [...Array(HOTBAR_SIZE).keys()].find(i => !hotbar[i]) ?? -1
+    if (slot >= 0) this.setHotbarSlot(slot, { ...item, count })
+    return slot
   }
 
   input (params) {
     this.stats.inputs++
     this.lastInputTick = params.tick ?? this.lastInputTick
+    const flags = params.input_data
+    const has = flag => Array.isArray(flags) ? flags.includes(flag) : !!flags?.[flag]
     const eyes = params.position
     if (!eyes) return
-    const feet = { x: eyes.x, y: eyes.y - EYE_HEIGHT, z: eyes.z }
+    // driving a boat, the input reports the boat (its position and rotation): the rider sits in it
+    const boat = this.riding && has('client_predicted_vehicle') ? this.riding : null
+    if (boat) {
+      boat.pos = { x: eyes.x, y: eyes.y, z: eyes.z }
+      boat.yaw = params.vehicle_rotation?.z ?? boat.yaw
+    }
+    const feet = boat ? { x: eyes.x, y: eyes.y + SEAT_EYES - EYE_HEIGHT, z: eyes.z } : { x: eyes.x, y: eyes.y - EYE_HEIGHT, z: eyes.z }
     if (this.teleportTarget) {
       const t = this.teleportTarget
       if (Math.abs(feet.x - t.x) > 2 || Math.abs(feet.y - t.y) > 2 || Math.abs(feet.z - t.z) > 2) return
@@ -224,8 +276,6 @@ class Connection extends EventEmitter {
     this.feet = feet
     this.yaw = params.yaw ?? this.yaw
     this.pitch = params.pitch ?? this.pitch
-    const flags = params.input_data
-    const has = flag => Array.isArray(flags) ? flags.includes(flag) : !!flags?.[flag]
     if (has('start_flying')) this.flying = true
     // (a use while sneaking places against a gate rather than opening it)
     this.sneaking = has('sneaking') || has('sneak_down')
@@ -265,6 +315,7 @@ class Connection extends EventEmitter {
   // takes the player to another dimension (its feet there): the client shows its loading screen, asks for the columns
   // around, and plays on once play_status player_spawn says they are out
   changeDimension (dimension, feet) {
+    this.server.leaveBoat(this)
     this.dimension = dimension
     this.portal = { armed: false, ticks: 0 }
     this.feet = { x: feet.x, y: feet.y, z: feet.z }
@@ -320,13 +371,18 @@ class Connection extends EventEmitter {
   // a block broken, placed or used (an item use on it; the transaction of 1.16.201 is its own container), or the held
   // item used in the air
   transaction (transaction) {
+    const data = transaction?.transaction_data ?? {}
+    if (transaction?.transaction_type === 'item_use_on_entity') {
+      if (data.action_type === 'interact') this.server.rideBoat(this, data.entity_runtime_id)
+      else if (data.action_type === 'attack') this.server.breakBoat(this, data.entity_runtime_id)
+      return
+    }
     if (transaction?.transaction_type !== 'item_use') return
-    const data = transaction.transaction_data ?? {}
     if (data.action_type === 'click_air') return this.server.useItem(this, data.hotbar_slot ?? this.selectedSlot)
     const pos = data.block_position
     if (!pos) return
     if (data.action_type === 'break_block') this.server.breakBlock(this, pos)
-    else if (data.action_type === 'click_block' && !this.server.useBlock(this, pos)) this.server.placeBlock(this, pos, data.face, data.hotbar_slot ?? this.selectedSlot, data.held_item)
+    else if (data.action_type === 'click_block' && !this.server.useBlock(this, pos) && !this.server.placeBoat(this, pos, data.hotbar_slot ?? this.selectedSlot)) this.server.placeBlock(this, pos, data.face, data.hotbar_slot ?? this.selectedSlot, data.held_item)
   }
 }
 

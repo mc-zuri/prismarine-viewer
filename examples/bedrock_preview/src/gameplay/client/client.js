@@ -16,6 +16,7 @@ const { ChunkStore } = require('./chunks')
 const { BlobStore } = require('./blobs')
 const { Movement, clientLook } = require('./movement')
 const { Interaction } = require('./interaction')
+const { Riding } = require('./riding')
 const { fieldType, mapperValues } = require('../protocol/schema')
 
 const DIMENSIONS = ['overworld', 'nether', 'end']
@@ -45,6 +46,7 @@ class Client extends EventEmitter {
     this.channel = new PacketChannel(port, this.codec)
     this.chunks = new ChunkStore(this)
     this.interaction = new Interaction(this)
+    this.riding = new Riding(this)
     this.controls = { forward: false, back: false, left: false, right: false, jump: false, sneak: false, sprint: false }
     this.look = { yaw: 0, pitch: 0 }
     this.gamemode = 'survival'
@@ -162,6 +164,15 @@ class Client extends EventEmitter {
         return this.loadingProgress()
       case 'client_cache_miss_response':
         return this.chunks.missResponse(params)
+      case 'add_entity':
+        this.riding.added(params)
+        return
+      case 'remove_entity':
+        this.riding.removed(params)
+        return
+      case 'set_entity_link':
+        this.riding.link(params.link ?? {})
+        return
       case 'update_block': {
         const pos = params.position ?? params.coordinates
         this.interaction.confirm(pos)
@@ -244,6 +255,7 @@ class Client extends EventEmitter {
   changeDimension (packet) {
     this.dimension = dimensionOf(packet.dimension)
     this.chunks.clear()
+    this.riding.clear()
     this.movement?.handle('change_dimension', packet)
     this.changingDimension = true
     this.emit('dimension', this.dimension)
@@ -301,6 +313,25 @@ class Client extends EventEmitter {
 
   placeBlock (target) {
     return this.interaction.placeBlock(target)
+  }
+
+  // the entities the server added (boats): runtime id -> { runtimeId, uniqueId, type, pos, yaw }
+  get entities () {
+    return this.riding.entities
+  }
+
+  // gets on an entity (a boat), or hits it (a boat breaks)
+  interactEntity (entity) {
+    return this.interaction.useOnEntity('interact', entity)
+  }
+
+  attackEntity (entity) {
+    return this.interaction.useOnEntity('attack', entity)
+  }
+
+  // leaves the boat ridden
+  leaveVehicle () {
+    this.riding.leave()
   }
 
   // the held item used in the air (a firework rocket boosts a glide)

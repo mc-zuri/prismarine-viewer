@@ -29,6 +29,7 @@ const { routePrimitives, ROUTE_COLORS } = require('./gameplay/pathfinder/route')
 const { CameraRig, cameraBlocks, cameraDistance, forward, wrapDegrees } = require('./gameplay/view/camera')
 const { PointerLock } = require('./gameplay/view/pointerLock')
 const { PlayerModel } = require('./gameplay/view/player')
+const { EntityModels, entityHit } = require('./gameplay/view/entities')
 const { Shapes } = require('./gameplay/view/shapes')
 const { pick, walkInput } = require('./gameplay/view/walk')
 
@@ -115,6 +116,7 @@ const outline = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeom
 outline.visible = false
 viewer.scene.add(outline)
 const playerModel = new PlayerModel(viewer)
+const entityModels = new EntityModels(viewer)
 const shapes = new Shapes(viewer)
 
 const status = text => { ui.status.textContent = text }
@@ -268,7 +270,11 @@ async function join () {
     viewer.scene.background = new THREE.Color(SKIES[client.dimension] ?? SKIES[0])
     hud.setVersion(version).then(() => hud.hotbar(client.interaction.hotbar, client.interaction.selectedSlot))
     // the player's model, of the version's entities
-    loadEntityAssets(version).then(assets => { if (current()) playerModel.use(assets) }, () => {})
+    loadEntityAssets(version).then(assets => {
+      if (!current()) return
+      playerModel.use(assets)
+      entityModels.use(assets)
+    }, () => {})
   })
   client.on('column', column => s.columns.set(`${column.x},${column.z}`, column))
   client.on('unloadColumn', (x, z) => {
@@ -326,6 +332,7 @@ function leave () {
   viewer.resetAll()
   shapes.clear()
   playerModel.dispose()
+  entityModels.dispose()
   outline.visible = false
   hud.clear()
   pointer.unlock()
@@ -363,7 +370,12 @@ function frame () {
   else viewer.camera.lookAt(placed.target.x, placed.target.y, placed.target.z)
   playerModel.place(feet, look.yaw, look.pitch, placed.distance > MODEL_DISTANCE, player, client.interaction.held?.name, performance.now())
   // the block aimed at: from the eyes along the look (none in the walk view)
+  entityModels.place(client.entities, performance.now())
   s.target = mode === 'walk' ? null : client.target(eye, forward(look), REACH)
+  // an entity (a boat) nearer than the block aimed at is aimed at instead
+  const hit = mode === 'walk' ? null : entityHit(client.entities, eye, forward(look), REACH)
+  s.entity = hit && (!s.target || hit.t < Math.hypot(s.target.point.x + s.target.pos.x - eye.x, s.target.point.y + s.target.pos.y - eye.y, s.target.point.z + s.target.pos.z - eye.z)) ? hit.entity : null
+  if (s.entity) s.target = null
   outline.visible = !!s.target
   if (s.target) {
     const [x0, y0, z0, x1, y1, z1] = s.target.box
@@ -398,6 +410,13 @@ function use (button) {
   const s = session
   const client = s?.client
   if (!client?.player) return
+  // an entity aimed at: right gets on it, left hits it (a boat breaks)
+  if (s.entity) {
+    playerModel.swing()
+    if (button === 2) client.interactEntity(s.entity)
+    else if (button === 0) client.attackEntity(s.entity)
+    return
+  }
   if (!s.target) {
     if (button === 2 && client.useItem()) playerModel.swing()
     return

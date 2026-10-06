@@ -127,6 +127,44 @@ class Interaction {
     return this.armor[1]?.name === 'elytra'
   }
 
+  // A use of the held item on an entity: 'interact' (gets on a boat) or 'attack' (breaks one)
+  useOnEntity (action, entity) {
+    const { client } = this
+    if (!entity) return false
+    const { pos } = client.movement.player
+    const eyes = { x: pos.x, y: pos.y + client.movement.physics.eyeHeight, z: pos.z }
+    client.queue('inventory_transaction', {
+      transaction: {
+        legacy: { legacy_request_id: 0 },
+        legacy_request_id: 0,
+        transaction_type: 'item_use_on_entity',
+        transaction_data: {
+          entity_runtime_id: entity.runtimeId,
+          action_type: action,
+          hotbar_slot: this.selectedSlot,
+          held_item: heldItemWire(this.held?.raw),
+          player_pos: eyes,
+          click_pos: { x: 0, y: 0, z: 0 }
+        }
+      }
+    })
+    return true
+  }
+
+  // The held boat put on the water: the top of the water over the block aimed at (a ray goes through water). Whether
+  // there was any.
+  placeBoat (target) {
+    const { client } = this
+    if (!target || !/(^|_)boat$/.test(this.held?.name ?? '')) return false
+    const isWater = at => /water$/.test(client.registry.blocksByStateId[client.chunks.getBlockStateId(at) ?? -1]?.name ?? '')
+    let at = { x: target.pos.x, y: target.pos.y + 1, z: target.pos.z }
+    if (isWater(target.pos)) at = { ...target.pos }
+    if (!isWater(at)) return false
+    while (isWater({ ...at, y: at.y + 1 })) at = { ...at, y: at.y + 1 }
+    this.use('click_block', { pos: at, face: 1, point: { x: 0.5, y: 1, z: 0.5 }, stateId: client.chunks.getBlockStateId(at) ?? 0 })
+    return true
+  }
+
   // The held item used in the air (an item use clicking no block): a firework rocket boosts the glide from the next
   // tick, and in survival one of the stack goes. Whether something was used.
   useItem () {
@@ -191,10 +229,12 @@ class Interaction {
     return gateToggle(this.client.registry)(target.stateId)
   }
 
-  // the use of the block aimed at: a gate opens or shuts; else the held block goes against the face aimed at
+  // the use of the block aimed at: a gate opens or shuts; a boat goes on the water; else the held block goes against the
+  // face aimed at
   placeBlock (target) {
     const { client } = this
     const { registry, chunks } = client
+    if (/(^|_)boat$/.test(this.held?.name ?? '')) return this.placeBoat(target)
     const used = this.useOf(target)
     if (used !== null) {
       chunks.setBlock(target.pos, used)

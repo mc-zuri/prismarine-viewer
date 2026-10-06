@@ -43,6 +43,8 @@ class PlayerModel {
     model.object.rotation.y = Math.PI - yaw * RADIANS
     const state = player.bedrock ?? {}
     const flags = ['sneaking', 'sprinting', 'swimming', 'crawling'].filter(flag => state[flag])
+    // (sitting in a boat)
+    if (player.vehicle) flags.push('riding')
     model.setState({ metadata: { flags: Object.fromEntries(flags.map(flag => [flag, true])) }, held: held || undefined, equipment: held ? { mainhand: held } : {} })
     model.setMotion({ position: feet, yaw, headYaw: yaw, pitch, onGround: !!player.onGround, inWater: !!player.isInWater, inLava: !!player.isInLava })
     model.setCamera(this.viewer.camera.position)

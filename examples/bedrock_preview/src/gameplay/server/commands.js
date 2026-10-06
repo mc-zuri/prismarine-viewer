@@ -112,13 +112,9 @@ function runCommand (server, line, connection) {
         // (BDS names the player first: /give @s elytra)
         const rest = (args[0] ?? '').startsWith('@') ? args.slice(1) : args
         const item = itemOf(server, rest[0], rest[1])
-        const hotbar = connection.hotbar
-        let slot = hotbar.findIndex((held, i) => i < HOTBAR_SIZE && held?.name === item.name && held.count + item.count <= MAX_STACK)
-        if (slot >= 0) item.count += hotbar[slot].count
-        else slot = [...Array(HOTBAR_SIZE).keys()].find(i => !hotbar[i])
-        if (slot === undefined) return say('the hotbar is full: /replaceitem entity @s slot.hotbar <0-8> <item>')
-        connection.setHotbarSlot(slot, item)
-        return say(`gave ${rest[1] ?? 1} ${item.name} (hotbar slot ${slot})`)
+        const slot = connection.give(item)
+        if (slot < 0) return say('the hotbar is full: /replaceitem entity @s slot.hotbar <0-8> <item>')
+        return say(`gave ${item.count} ${item.name} (hotbar slot ${slot})`)
       }
       case 'replaceitem': {
         if (!connection) return say('replaceitem is a player\'s')

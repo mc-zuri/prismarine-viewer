@@ -6,6 +6,7 @@ const { Vec3 } = require('vec3')
 const { Physics, BedrockSession } = require('prismarine-physics-bedrock/lib/bedrock/index.ts')
 const { fieldsOf, fieldType, definitionOf, mapperValues, toBigInt } = require('../protocol/schema')
 const { worldView } = require('./worldView')
+const { mt19937FromSeed } = require('prismarine-physics-bedrock/lib/bedrock/math/mt19937.ts')
 
 const TICK_MS = 50
 // the most ticks a call of tick() catches up (a page in the background is woken seldom)
@@ -81,7 +82,10 @@ class Movement {
     this.clock = new TickClock(now)
     this.now = now
     // the engine's player: its feet, velocity, look (radians), abilities; the engine keeps its own state on it
-    this.player = { pos: new Vec3(0, 0, 0), vel: new Vec3(0, 0, 0), onGround: false, yaw: 0, pitch: 0, control: {}, attributes: {}, food: 20, flySpeed: 0.05, verticalFlySpeed: 1 }
+    // (and the client's random numbers: a boat's waves draw from them, which a prediction copies)
+    this.player = { pos: new Vec3(0, 0, 0), vel: new Vec3(0, 0, 0), onGround: false, yaw: 0, pitch: 0, control: {}, attributes: {}, food: 20, flySpeed: 0.05, verticalFlySpeed: 1, randomState: mt19937FromSeed(1) }
+    // whether the version's input reports a vehicle the player drives (1.20.71 on)
+    this.reportsVehicle = JSON.stringify(client.codec.types.packet_player_auth_input ?? '').includes('vehicle_rotation')
     // where the player was before the last tick, and when that tick ran: the page draws in between
     this.prevPos = this.player.pos.clone()
     this.lastTickTime = now()
@@ -139,13 +143,15 @@ class Movement {
   step (t) {
     const { client, player, session } = this
     this.prevPos = player.pos.clone()
-    // (the elytra worn: the engine glides with it)
+    // (the elytra worn: the engine glides with it; the sneak key pressed leaves a boat)
     player.elytraEquipped = client.interaction.elytra
+    client.riding.beforeStep()
     const frame = { t: Number(t), control: { ...client.controls }, yaw: client.look.yaw, pitch: client.look.pitch, fireworkUsed: !!this.fireworkUsed }
     this.fireworkUsed = false
     if (this.ready()) session.tick(player, frame)
     else session.runDue(player, Number(t))
-    client.queue('player_auth_input', this.writer.write(this.physics.playerAuthInput(player), t))
+    client.riding.follow(this.reportsVehicle)
+    client.queue('player_auth_input', this.writer.write(client.riding.input(this.physics.playerAuthInput(player), this.reportsVehicle), t))
     this.lastTickTime = this.now()
     client.emit('step', t)
   }

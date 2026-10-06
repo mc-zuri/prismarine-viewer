@@ -15,6 +15,7 @@
       .build td.name { font-weight: bold; }
       .build tr.nested td.name { font-weight: normal; padding-left: 1.2em; color: #c3cad3; }
       .build td.repo { color: #a7b0bb; }
+      .build td.repo .branch { color: #8cc8ff; }
       .build td.commit { font-family: ui-monospace, Consolas, monospace; }
       .build .badge { font-size: 0.8em; padding: 0.1em 0.6em; border-radius: 1em; margin-right: 0.4em; }
       .build .dirty { background: #4a3a14; color: #f0b44a; }
@@ -61,6 +62,17 @@
           span.title = title
           return span
         }
+        // owner/name#branch, the #branch a link to the branch on GitHub
+        const source = (p, repo) => {
+          const td = cell('repo', p.repo ?? p.url)
+          if (!p.branch) return td
+          const branch = document.createElement(repo ? 'a' : 'span')
+          branch.className = 'branch'
+          branch.textContent = '#' + p.branch
+          if (repo) branch.href = `${repo}/tree/${p.branch}`
+          td.append(branch)
+          return td
+        }
         const rows = info.packages.map(p => {
           const tr = document.createElement('tr')
           if (p.of) tr.className = 'nested'
@@ -70,8 +82,7 @@
           if (p.from === 'local copy') notes.append(badge('copy', 'local', 'copied from a local checkout'))
           tr.append(
             cell('name', (p.of ? '└ ' : '') + p.name),
-            cell('repo', p.repo ?? p.url),
-            cell('branch', p.branch, repo && p.branch && `${repo}/tree/${p.branch}`),
+            source(p, repo),
             cell('commit', p.commit?.slice(0, 7) ?? '?'),
             notes)
           return tr

@@ -295,6 +295,8 @@ async function play (version, cache, hashes) {
     //   steps      up a stair of blocks 3 wide, sprinting, never running into a block's side (it jumps from far enough
     //              back to clear each edge)
     //   swim       across the pond, in creative (its jumps in the water are no double tap)
+    //   fly ...    in creative, flying where that is quicker (every other walk does not fly): over a pit too wide to
+    //              jump and too deep to climb out of, and up onto a pillar 10 high; it lands at the goal
     //   lake ...   a lake 6 deep: across it, down to its floor, along its floor, from there out onto the bank, and into
     //              it from the bank, every tick in the water but the first a prediction's; across it, it swims
     //              sprinting, and from floor to floor it comes up for air
@@ -321,6 +323,21 @@ async function play (version, cache, hashes) {
           setup: [`/fill 6 ${G - 1} 20 21 ${G - 1} 24 stone`, `/fill 6 ${G} 20 21 ${G + 5} 24 air`, `/fill 11 ${G} 21 20 ${G} 23 stone`, `/fill 14 ${G + 1} 21 20 ${G + 1} 23 stone`, `/fill 17 ${G + 2} 21 20 ${G + 2} 23 stone`, `/tp 7.5 ${G} 22.5`],
           clean: true
         },
+        // flying, in creative: over a pit 10 wide and 8 deep east of the lane, and onto a pillar 10 high beside it
+        {
+          name: 'fly over',
+          goal: { x: 20, y: G, z: 28 },
+          options: { fly: true },
+          setup: [`/fill 6 ${G - 1} 26 21 ${G - 1} 30 stone`, `/fill 6 ${G} 26 21 ${G + 12} 30 air`, `/fill 9 ${G - 8} 26 18 ${G - 1} 30 air`, `/tp 7.5 ${G} 28.5`],
+          flies: true
+        },
+        {
+          name: 'fly up',
+          goal: { x: 19, y: G + 10, z: 28 },
+          options: { fly: true },
+          setup: [`/fill 19 ${G} 28 19 ${G + 9} 28 stone`, `/tp 20.5 ${G} 28.5`],
+          flies: true
+        },
         // across the pond, in creative: the jump it swims with is not the double tap that flies
         { name: 'swim', goal: { x: -22, y: G - 1, z: 12 }, setup: [`/tp -11.5 ${G - 1} 12.5`], afloat: true },
         // a lake 6 deep west of the lane: across it, down to its floor, up from there out onto the bank, and into it
@@ -339,7 +356,7 @@ async function play (version, cache, hashes) {
       const walkOnce = async (walk, humanLike) => {
         const name = `${walk.name}${humanLike ? '' : ' (not humanLike)'}`
         for (const line of walk.setup) client.chat(line)
-        pathfinder.setOptions({ dig: true, ...walk.options, humanLike })
+        pathfinder.setOptions({ dig: true, fly: false, ...walk.options, humanLike })
         await session.tick(walk.swims ? 30 : 3)
         if (walk.settle) await session.until('the world around the walk', 600, () => connection.chunks.settled && !pendingSections(client))
         for (const key of Object.keys(audit.counts)) audit.counts[key] = 0
@@ -353,11 +370,12 @@ async function play (version, cache, hashes) {
         mismatch = null
         // the ticks it swam (sprinting in the water: the engine's swim), had its head out of the water and ran into a
         // block's side
-        const seen = { swimming: 0, breathing: 0, collided: 0 }
+        const seen = { swimming: 0, breathing: 0, collided: 0, flying: 0 }
         const onStep = () => {
           const { pos, bedrock } = client.player
           if (bedrock?.swimming) seen.swimming++
           if (client.player.isCollidedHorizontally) seen.collided++
+          if (bedrock?.flying) seen.flying++
           const eyes = client.movement.world.getBlock({ x: pos.x, y: pos.y + client.movement.physics.eyeHeight, z: pos.z })
           if (!eyes?.liquid && !/water/.test(eyes?.name ?? '')) seen.breathing++
         }
@@ -381,6 +399,8 @@ async function play (version, cache, hashes) {
           if (walk.opened && !/open_bit=(1|true)/.test(gateState(server, walk.opened))) fail(`pathfinder ${name}: the gate is not open`)
           if (Math.abs(connection.feet.x - at.x) > 1e-3 || Math.abs(connection.feet.y - at.y) > 1e-3 || Math.abs(connection.feet.z - at.z) > 1e-3) fail(`pathfinder ${name}: the server has the player at ${connection.feet.x},${connection.feet.y},${connection.feet.z}`)
           if (walk.sprints && !seen.swimming) fail(`pathfinder ${name}: it never swam (sprinting in the water)`)
+          if (walk.flies && !seen.flying) fail(`pathfinder ${name}: it never flew`)
+          if (!walk.flies && seen.flying) fail(`pathfinder ${name}: it flew`)
           if (walk.clean && seen.collided) fail(`pathfinder ${name}: ${seen.collided} ticks against a block's side`)
           if (walk.breathes && !seen.breathing) fail(`pathfinder ${name}: its head never came out of the water`)
           // swimming, every tick but the first (the walk's plan) is a prediction's

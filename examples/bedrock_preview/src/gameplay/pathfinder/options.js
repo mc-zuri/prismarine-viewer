@@ -9,6 +9,8 @@
 //   humanLike      turns and acts as a person does: the look eases toward where it goes rather than snapping, the eyes
 //                  on the route ahead; the player walks once it faces the way, and breaks or places once the crosshair
 //                  settled on the block
+//   fly            in creative, flies where that is quicker (Movements.allowFlying): it takes off with a double jump and
+//                  lands with another
 //   maxDrop        the highest drop it walks off, in blocks: more than 3 hurts in survival
 
 const DEFAULT_OPTIONS = Object.freeze({
@@ -19,11 +21,12 @@ const DEFAULT_OPTIONS = Object.freeze({
   openGates: true,
   avoidEntities: true,
   humanLike: true,
+  fly: true,
   maxDrop: 3
 })
 
 const MAX_DROP = 16
-const FLAGS = ['dig', 'place', 'parkour', 'sprint', 'openGates', 'avoidEntities', 'humanLike']
+const FLAGS = ['dig', 'place', 'parkour', 'sprint', 'openGates', 'avoidEntities', 'humanLike', 'fly']
 
 // Options as given (a page's, a caller's): the known ones of the right kind over `base`, the drop within 0 to 16
 function pathfinderOptions (given, base = DEFAULT_OPTIONS) {

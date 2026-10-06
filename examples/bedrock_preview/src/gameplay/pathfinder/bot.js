@@ -57,6 +57,8 @@ function createBot (body, blockAt, steering = new Steering(body)) {
     get isCollidedHorizontally () { return !!live().isCollidedHorizontally },
     get isCollidedVertically () { return !!live().isCollidedVertically },
     get elytraFlying () { return !!live().elytraFlying },
+    // creative flight: the engine's own toggle (the double tap sets it at once, before the server hears of it)
+    get flying () { return !!live().bedrock?.flying },
     get yaw () { return client.look.yaw },
     get pitch () { return client.look.pitch },
     get attributes () { return cloneValue(live().attributes ?? {}) },

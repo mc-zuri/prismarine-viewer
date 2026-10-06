@@ -74,7 +74,8 @@ function createBot (body, blockAt, steering = new Steering(body)) {
       get minY () { return (client.chunks.loadedColumn(Math.floor(live().pos.x) >> 4, Math.floor(live().pos.z) >> 4)?.minCY ?? 0) * 16 },
       get gameMode () { return client.gamemode }
     },
-    controlState: client.controls,
+    // the keys the pathfinder holds (as the steering has them): a prediction starts from them
+    controlState: steering.wanted,
     steering,
     hands,
     setControlState: (control, pressed) => steering.setControlState(control, pressed),
@@ -86,7 +87,23 @@ function createBot (body, blockAt, steering = new Steering(body)) {
     placeBlock: (reference, face) => hands.placeBlock(reference, face),
     activateBlock: block => hands.activateBlock(block),
     equip: (item, destination) => hands.equip(item, destination),
-    physics: { simulatePlayer: state => movement.physics.simulatePlayer(state, world) },
+    // A tick of a prediction, steered as the live tick is (human.js): the controller's yaw, pitch and keys are what the
+    // pathfinder wants, and the tick runs on the inputs the client would send for them (kept on the state as applied)
+    physics: {
+      simulatePlayer: state => {
+        const want = { yaw: state.yaw, pitch: state.pitch, control: { ...state.control } }
+        const { look, controls } = steering.predict(state)
+        state.yaw = look.yaw
+        state.pitch = look.pitch
+        Object.assign(state.control, controls)
+        state.applied = { control: { ...controls }, yaw: look.yaw, pitch: look.pitch }
+        movement.physics.simulatePlayer(state, world)
+        state.yaw = want.yaw
+        state.pitch = want.pitch
+        Object.assign(state.control, want.control)
+        return state
+      }
+    },
     // Forgets the blocks and items read for the last tick
     newTick: () => {
       seen.clear()

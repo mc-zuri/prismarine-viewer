@@ -71,8 +71,11 @@ class Audit extends EventEmitter {
     this.hooked = bot
     const simulatePlayer = bot.physics.simulatePlayer
     bot.physics.simulatePlayer = state => {
-      const inputs = inputsOf(state.control, state.yaw, state.pitch)
+      const before = inputsOf(state.control, state.yaw, state.pitch)
       const result = simulatePlayer(state)
+      // the inputs the tick ran on: those the bot steered the prediction's to (bot.js), else the prediction's own
+      const { applied } = state
+      const inputs = applied ? inputsOf(applied.control, applied.yaw, applied.pitch) : before
       if (!this.runs.has(state)) this.runs.set(state, { inputs, after: snapshot(state) })
       return result
     }

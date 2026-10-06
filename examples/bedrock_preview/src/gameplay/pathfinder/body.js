@@ -44,6 +44,9 @@ function bodyOf (client) {
     get sneaking () {
       return !!client.player?.bedrock?.sneaking
     },
+    get eyeHeight () {
+      return client.movement.physics.eyeHeight
+    },
     eyes () {
       const { pos } = client.player
       return { x: pos.x, y: pos.y + client.movement.physics.eyeHeight, z: pos.z }

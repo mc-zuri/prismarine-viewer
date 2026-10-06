@@ -17,6 +17,8 @@ const RAD = Math.PI / 180
 const bedrockYaw = yaw => 180 - yaw / RAD
 const bedrockPitch = pitch => -pitch / RAD
 const lookOf = (yawDegrees, pitchDegrees) => ({ yaw: (180 - yawDegrees) * RAD, pitch: -pitchDegrees * RAD })
+// the look as the client keeps it: the pitch within straight up and straight down
+const clientLook = (yaw, pitch) => ({ yaw, pitch: Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch)) })
 
 // The server matches each input to its tick: the client counts from start_game's tick by the clock, and moves forward
 // to a correction's when it has fallen behind
@@ -152,4 +154,4 @@ class Movement {
   }
 }
 
-module.exports = { Movement, TickClock, AuthInputWriter, TICK_MS, bedrockYaw, bedrockPitch, lookOf }
+module.exports = { Movement, TickClock, AuthInputWriter, TICK_MS, bedrockYaw, bedrockPitch, lookOf, clientLook }

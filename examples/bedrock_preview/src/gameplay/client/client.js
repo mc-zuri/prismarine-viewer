@@ -14,7 +14,7 @@ const { createCodec } = require('../protocol/codec')
 const { PacketChannel } = require('../protocol/channel')
 const { ChunkStore } = require('./chunks')
 const { BlobStore } = require('./blobs')
-const { Movement } = require('./movement')
+const { Movement, clientLook } = require('./movement')
 const { Interaction } = require('./interaction')
 const { fieldType, mapperValues } = require('../protocol/schema')
 
@@ -262,7 +262,7 @@ class Client extends EventEmitter {
 
   // the look, in mineflayer's radians (yaw 0 faces north, turning west; pitch up)
   setLook (yaw, pitch) {
-    this.look = { yaw, pitch: Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch)) }
+    this.look = clientLook(yaw, pitch)
   }
 
   // steps the player through the ticks due (a page calls it every 50 ms; the check whenever it likes)

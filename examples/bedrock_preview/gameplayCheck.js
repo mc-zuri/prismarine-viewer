@@ -280,7 +280,7 @@ async function play (version, cache, hashes) {
     //   gate       into a box of glass with a fence gate in its south wall, not breaking blocks (it opens the gate)
     //   swim       across the pond, in creative (its jumps in the water are no double tap)
     // once turning and pressing as a person does (humanLike) and once as the pathfinder says; each tick its prediction
-    // of the tick is the tick (audit.js): with the inputs the client sent, and without humanLike, those it predicted
+    // of the tick is the tick, and the inputs the client sent are those of a prediction (audit.js)
     if (!recorded) {
       const back = { x: Math.floor(start.x), y: G, z: Math.floor(start.z) }
       const walks = [
@@ -331,8 +331,7 @@ async function play (version, cache, hashes) {
           if (walk.placed && !counts.placed) fail(`pathfinder ${name}: nothing placed`)
           if (walk.opened && !/open_bit=(1|true)/.test(gateState(server, walk.opened))) fail(`pathfinder ${name}: the gate is not open`)
           if (Math.abs(connection.feet.x - at.x) > 1e-3 || Math.abs(connection.feet.y - at.y) > 1e-3 || Math.abs(connection.feet.z - at.z) > 1e-3) fail(`pathfinder ${name}: the server has the player at ${connection.feet.x},${connection.feet.y},${connection.feet.z}`)
-          // (humanLike's turns and presses are not the plugin's predictions yet)
-          if (mismatch && (!humanLike || mismatch.kind !== 'input')) fail(`pathfinder ${name}: tick ${mismatch.t} at ${mismatch.at.join(' ')} is not the ${mismatch.kind === 'input' ? 'inputs predicted' : 'tick predicted'}: ${mismatch.fields.slice(0, 3).map(f => `${f.field} ${JSON.stringify(f.predicted)} for ${JSON.stringify(f.actual)}`).join(', ')}`)
+          if (mismatch) fail(`pathfinder ${name}: tick ${mismatch.t} at ${mismatch.at.join(' ')} is not the ${mismatch.kind === 'input' ? 'inputs predicted' : 'tick predicted'}: ${mismatch.fields.slice(0, 3).map(f => `${f.field} ${JSON.stringify(f.predicted)} for ${JSON.stringify(f.actual)}`).join(', ')}`)
         }
         pathfinder.off('route', onRoute)
         pathfinder.off('end', onEnd)

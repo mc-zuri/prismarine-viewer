@@ -2,8 +2,9 @@
 // The gameplay page's Bedrock server, in a Web Worker (gameplay-server.js): the page starts it for a version, then
 // hands it one end of a MessageChannel, over which its client and the server exchange the game's packets.
 //
-//   page -> worker   { type: 'start', version, hashes, world ('explore', 'explore:nether'; none: the showcase), radius,
-//                    verify }   { type: 'connect' } with the port
+//   page -> worker   { type: 'start', version, hashes, world ('explore', 'explore:nether'; none: the showcase), start
+//                    (what players start with: { armor: { chest: 'elytra' }, hotbar: { 8: 'oak_boat' }, boat: a boat on
+//                    the water near the spawn }), radius, verify }   { type: 'connect' } with the port
 //                    { type: 'command', line }
 //   worker -> page   { type: 'ready', hashes }   { type: 'log', line }   { type: 'stats', stats }   { type: 'error', message }
 // (protodef runs the code it compiles with eval, which sees the global Buffer)
@@ -34,7 +35,7 @@ self.onmessage = async ({ data, ports }) => {
         // ('explore', or 'explore:nether': a dimension of it)
         const [name, dimension = 'overworld'] = (data.world ?? '').split(':')
         const [world] = await Promise.all([name ? loadWorld(name).then(world => ({ ...world, dimension })) : null, preload('bedrock_' + data.version)])
-        server = createServer({ version: data.version, hashes: data.hashes, world, maxRadius: data.radius, verify: data.verify, log: line => post({ type: 'log', line }) })
+        server = createServer({ version: data.version, hashes: data.hashes, world, ...data.start, maxRadius: data.radius, verify: data.verify, log: line => post({ type: 'log', line }) })
         server.start()
         setInterval(() => post({ type: 'stats', stats: server.stats() }), 1000)
         post({ type: 'ready', hashes: server.hashes })

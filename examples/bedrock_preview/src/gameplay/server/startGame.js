@@ -116,7 +116,9 @@ function slotPacket (window, slot, item) {
 
 // An item of the version by name, as the hotbar holds one (a block's item places its block): null where it has none
 function itemNamed (registry, name, count = 1) {
-  const item = registry.itemsByName[String(name).replace(/^minecraft:/, '')]
+  const wanted = String(name).replace(/^minecraft:/, '')
+  // (an oak boat is a boat before the boats were named by their wood)
+  const item = registry.itemsByName[wanted] ?? (/_boat$/.test(wanted) ? registry.itemsByName.boat : undefined)
   if (!item) return null
   const block = registry.blocksByName[item.name]
   const stateId = block?.defaultState

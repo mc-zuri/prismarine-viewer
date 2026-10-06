@@ -122,7 +122,8 @@ function checkSchema (version) {
 async function join (version, { cache, hashes, blobStore, log }) {
   let time = 0
   const now = () => time
-  const server = createServer({ version, hashes, world: recorded, verify: true, log })
+  // (players start with what the page's start with: an elytra worn, a boat in the hotbar, a boat on the water near them)
+  const server = createServer({ version, hashes, world: recorded, armor: { chest: 'elytra' }, hotbar: { 8: 'oak_boat' }, boat: true, verify: true, log })
   const { port1, port2 } = new MessageChannel()
   const connection = server.accept(port2)
   const client = createClient({ port: port1, version, cache, blobStore, verify: true, now })
@@ -290,8 +291,18 @@ async function play (version, cache, hashes) {
     // rocket used then boosts it (the client's own boost) and goes from the stack, on the server and the client
     if (!recorded) {
       const at = { x: Math.floor(start.x) + 0.5, y: G + 40, z: Math.floor(start.z) + 0.5 }
-      for (const line of ['/gamemode survival', '/replaceitem entity @s slot.armor.chest 0 elytra', '/replaceitem entity @s slot.hotbar 8 firework_rocket 16', `/tp ${at.x} ${at.y} ${at.z}`]) client.chat(line)
+      // (worn from the join; a boat in the hotbar, and one on the pond)
+      if (!client.interaction.elytra) fail('the player does not start wearing the elytra')
+      if (!/boat$/.test(client.interaction.hotbar[8]?.name ?? '')) fail('no boat in the hotbar')
+      const startBoat = [...client.entities.values()].find(entity => /boat/.test(entity.type))
+      if (!startBoat || Math.hypot(startBoat.pos.x - start.x, startBoat.pos.z - start.z) > 24) fail(`no boat on the water near the player: ${JSON.stringify(startBoat?.pos)}`)
+      const modes = []
+      const onMode = mode => modes.push(mode)
+      client.on('gamemode', onMode)
+      for (const line of ['/gamemode survival', '/replaceitem entity @s slot.hotbar 8 firework_rocket 16', `/tp ${at.x} ${at.y} ${at.z}`]) client.chat(line)
       await session.tick(10)
+      client.off('gamemode', onMode)
+      if (modes.join() !== 'survival' || client.gamemode !== 'survival') fail(`the game mode went ${modes.join(', ') || 'unchanged'}, not to survival`)
       const seen = { gliding: 0, boosted: 0 }
       const onStep = () => {
         if (client.player.elytraFlying) seen.gliding++
@@ -312,7 +323,7 @@ async function play (version, cache, hashes) {
       if (!glided) fail('a jump in the air with an elytra worn did not glide')
       if (!seen.boosted) fail('the firework rocket did not boost the glide')
       if (connection.hotbar[8]?.count !== 15 || client.interaction.hotbar[8]?.count !== 15) fail(`firework rockets left: ${connection.hotbar[8]?.count} on the server, ${client.interaction.hotbar[8]?.count} on the client, not 15`)
-      for (const line of ['/replaceitem entity @s slot.armor.chest 0 air', `/replaceitem entity @s slot.hotbar 8 ${server.hotbar[8].name} 64`, '/gamemode creative', `/tp ${start.x} ${start.y} ${start.z}`]) client.chat(line)
+      for (const line of ['/replaceitem entity @s slot.armor.chest 0 air', `/replaceitem entity @s slot.hotbar 8 ${server.hotbar[8].name} ${server.hotbar[8].count}`, '/gamemode creative', `/tp ${start.x} ${start.y} ${start.z}`]) client.chat(line)
       client.selectSlot(0)
       await session.tick(10)
       if (client.interaction.elytra || client.player.elytraFlying) fail('the elytra is still worn, or glides')
@@ -324,6 +335,7 @@ async function play (version, cache, hashes) {
     // item back in the hotbar
     if (!recorded) {
       const boatItem = server.registry.itemsByName.oak_boat ? 'oak_boat' : 'boat'
+      const entitiesBefore = new Set(server.entities.keys())
       for (const line of ['/gamemode survival', `/fill -30 ${G - 6} 21 -10 ${G - 1} 30 water`, `/fill -30 ${G} 21 -10 ${G + 3} 30 air`, `/replaceitem entity @s slot.hotbar 8 ${boatItem} 1`, `/tp -8.5 ${G} 25.5`]) client.chat(line)
       await session.tick(10)
       // (facing west, along the lake: the boat heads the way the player faces; a teleport turns the look)
@@ -332,7 +344,7 @@ async function play (version, cache, hashes) {
       client.selectSlot(8)
       if (!client.interaction.placeBoat({ pos: { x: -11, y: G - 1, z: 25 } })) fail('no boat put on the water')
       await session.tick(3)
-      const boat = [...client.entities.values()].find(entity => /boat/.test(entity.type))
+      const boat = [...client.entities.values()].find(entity => /boat/.test(entity.type) && !entitiesBefore.has(entity.runtimeId))
       if (!boat) fail('the boat did not appear')
       if (connection.hotbar[8]) fail('the boat item is still in the hotbar')
       client.interactEntity(boat)
@@ -353,9 +365,9 @@ async function play (version, cache, hashes) {
       if (client.player.vehicle || connection.riding) fail(`still riding: the client ${!!client.player.vehicle}, the server ${!!connection.riding}`)
       client.attackEntity(boat)
       await session.tick(3)
-      if (client.entities.size || server.entities.size) fail(`the boat is not broken: ${client.entities.size} on the client, ${server.entities.size} on the server`)
+      if (client.entities.has(boat.runtimeId) || server.entities.has(boat.runtimeId)) fail('the boat is not broken')
       if (connection.hotbar[8]?.name !== boatItem || client.interaction.hotbar[8]?.name !== boatItem) fail('the boat item is not back in the hotbar')
-      for (const line of [`/replaceitem entity @s slot.hotbar 8 ${server.hotbar[8].name} 64`, '/gamemode creative', `/tp ${start.x} ${start.y} ${start.z}`]) client.chat(line)
+      for (const line of [`/replaceitem entity @s slot.hotbar 8 ${server.hotbar[8].name} ${server.hotbar[8].count}`, '/gamemode creative', `/tp ${start.x} ${start.y} ${start.z}`]) client.chat(line)
       client.selectSlot(0)
       await session.tick(10)
       row.boat = `driven ${driven.toFixed(1)} blocks`
@@ -387,7 +399,7 @@ async function play (version, cache, hashes) {
       // a lane 5 wide along the north edge, clear 20 blocks up; and the elytra worn in survival, then taken off
       const glideLane = ['/gamemode survival', '/replaceitem entity @s slot.armor.chest 0 elytra', `/fill -31 ${G - 1} -30 30 ${G - 1} -26 stone`, `/fill -31 ${G} -30 0 ${G + 12} -26 air`, `/fill 1 ${G} -30 30 ${G + 12} -26 air`, `/fill -31 ${G + 13} -30 0 ${G + 24} -26 air`, `/fill 1 ${G + 13} -30 30 ${G + 24} -26 air`]
       const boatItem = server.registry.itemsByName.oak_boat ? 'oak_boat' : 'boat'
-      const unglide = ['/replaceitem entity @s slot.armor.chest 0 air', `/replaceitem entity @s slot.hotbar 8 ${server.hotbar[8].name} 64`, '/gamemode creative']
+      const unglide = ['/replaceitem entity @s slot.armor.chest 0 air', `/replaceitem entity @s slot.hotbar 8 ${server.hotbar[8].name} ${server.hotbar[8].count}`, '/gamemode creative']
       const showcase = [
         { name: 'round', goal: back, setup: [`/fill -1 ${G} ${back.z - 3} 1 ${G + 1} ${back.z - 3} glass`] },
         { name: 'break in', goal: { x: back.x, y: G, z: back.z - 6 }, setup: [`/fill ${back.x - 1} ${G} ${back.z - 7} ${back.x + 1} ${G + 2} ${back.z - 5} glass`, `/fill ${back.x} ${G} ${back.z - 6} ${back.x} ${G + 1} ${back.z - 6} air`], broken: true },
@@ -443,7 +455,8 @@ async function play (version, cache, hashes) {
           name: 'boat',
           goal: { x: -31, y: G, z: 25 },
           setup: ['/gamemode survival', ...lake, `/replaceitem entity @s slot.hotbar 8 ${boatItem} 1`, `/tp -7.5 ${G} 25.5`],
-          teardown: [`/replaceitem entity @s slot.hotbar 8 ${server.hotbar[8].name} 64`, '/gamemode creative'],
+          options: { boats: true },
+          teardown: [`/replaceitem entity @s slot.hotbar 8 ${server.hotbar[8].name} ${server.hotbar[8].count}`, '/gamemode creative'],
           rides: true
         },
         // across the pond, in creative: the jump it swims with is not the double tap that flies
@@ -456,6 +469,8 @@ async function play (version, cache, hashes) {
         { name: 'lake in', goal: { x: -25, y: G - 1, z: 25 }, setup: [...lake, `/tp -6.5 ${G} 25.5`], swims: true, afloat: true }
       ]
       const walks = recorded ? WORLD_WALKS[recordedName] : showcase
+      // (the elytra the player starts in off: only the glide walks glide)
+      client.chat('/replaceitem entity @s slot.armor.chest 0 air')
       const pathfinder = attachPathfinder(client, { humanLike: true })
       const audit = attachAudit(pathfinder)
       let mismatch = null
@@ -464,7 +479,7 @@ async function play (version, cache, hashes) {
       const walkOnce = async (walk, humanLike) => {
         const name = `${walk.name}${humanLike ? '' : ' (not humanLike)'}`
         for (const line of walk.setup) client.chat(line)
-        pathfinder.setOptions({ dig: true, fly: false, ...walk.options, humanLike })
+        pathfinder.setOptions({ dig: true, fly: false, boats: false, ...walk.options, humanLike })
         await session.tick(walk.swims ? 30 : 3)
         if (walk.settle) await session.until('the world around the walk', 600, () => connection.chunks.settled && !pendingSections(client))
         for (const key of Object.keys(audit.counts)) audit.counts[key] = 0
@@ -481,6 +496,7 @@ async function play (version, cache, hashes) {
         const seen = { swimming: 0, breathing: 0, collided: 0, flying: 0, gliding: 0, riding: 0 }
         const rockets = () => connection.hotbar[8]?.name === 'firework_rocket' ? connection.hotbar[8].count : 0
         const rocketsBefore = rockets()
+        const entitiesAtStart = new Set(server.entities.keys())
         const onStep = () => {
           const { pos, bedrock } = client.player
           if (bedrock?.swimming) seen.swimming++
@@ -513,7 +529,7 @@ async function play (version, cache, hashes) {
           if (walk.sprints && !seen.swimming) fail(`pathfinder ${name}: it never swam (sprinting in the water)`)
           if (walk.rides && !seen.riding) fail(`pathfinder ${name}: it never rode a boat`)
           if (!walk.rides && seen.riding) fail(`pathfinder ${name}: it rode a boat`)
-          if (walk.rides && (!/boat$/.test(connection.hotbar[8]?.name ?? '') || server.entities.size)) fail(`pathfinder ${name}: the boat was not picked up`)
+          if (walk.rides && (!/boat$/.test(connection.hotbar[8]?.name ?? '') || [...server.entities.values()].some(entity => !entitiesAtStart.has(entity.id)))) fail(`pathfinder ${name}: the boat was not picked up`)
           if (walk.glides && !seen.gliding) fail(`pathfinder ${name}: it never glided`)
           if (!walk.glides && seen.gliding) fail(`pathfinder ${name}: it glided`)
           if (walk.rockets && !(rockets() < rocketsBefore)) fail(`pathfinder ${name}: it used no firework rocket`)

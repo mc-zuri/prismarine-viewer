@@ -136,6 +136,7 @@ class Client extends EventEmitter {
       case 'set_player_game_type':
         this.gamemode = params.gamemode
         this.movement?.handle(name, params)
+        this.emit('gamemode', this.gamemode)
         return
       case 'inventory_content':
         if (this.isInventory(params)) this.interaction.setSlots(params.input ?? [])
@@ -244,6 +245,7 @@ class Client extends EventEmitter {
     this.gamemode = packet.player_gamemode === 'fallback' ? packet.world_gamemode : packet.player_gamemode
     this.movement = new Movement(this, { now: this.now })
     this.movement.start(packet)
+    this.emit('gamemode', this.gamemode)
     const blockHashes = this.registry.supportFeature('blockHashes') && !!packet.block_network_ids_are_hashes
     this.emit('startGame', packet, { blockHashes })
     this.setStage('chunks', 'loading the world')

@@ -94,7 +94,7 @@ class Connection extends EventEmitter {
     this.selectedSlot = 0
     // what the player holds: its hotbar (the server's to start with) and the armour it wears (head, chest, legs, feet)
     this.hotbar = server.hotbar.map(item => ({ ...item }))
-    this.armor = [null, null, null, null]
+    this.armor = server.armor.map(item => item && { ...item })
     // the boat it rides
     this.riding = null
     this.chunks = new ChunkStreamer(this, server)

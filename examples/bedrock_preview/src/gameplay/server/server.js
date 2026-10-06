@@ -12,7 +12,7 @@ const { fieldType, hashKey, mapperValues } = require('../protocol/schema')
 const { showcaseWorld, statesOf } = require('../../showcase')
 const { recordedWorld, DIMENSIONS } = require('./recordedWorld')
 const { Connection, EYE_HEIGHT } = require('./connection')
-const { hotbarOf } = require('./startGame')
+const { hotbarOf, itemNamed, ARMOR_SLOTS } = require('./startGame')
 const { runCommand } = require('./commands')
 const { gateToggle } = require('../gates')
 
@@ -25,11 +25,12 @@ const REACH = 8
 const BOAT_FLOAT = 0.05
 const isBoat = name => /(^|_)boat$/.test(name ?? '')
 
-// The server. version: '1.26.51'; hashes: name block states by their hashes (from 1.19.80); world: a recorded world
+// The server. version: '1.26.51'; hashes: name block states by their hashes (from 1.19.80); armor: what players start wearing, by slot ({ chest: 'elytra' }); hotbar: the items players start with in place of the
+// building blocks, by slot ({ 8: 'oak_boat' }); boat: a boat on the water nearest the spawn; world: a recorded world
 // ({ meta, bin, dimension }: worldImport.js's files, the second unzipped, and the dimension to play: overworld, nether
 // or end), else the showcase; maxRadius: the most chunks a client may see; budget: the columns a connection is sent a
 // tick; verify: read back what is written; log: where its lines go
-function createServer ({ version, hashes = false, world: recorded, maxRadius = 8, budget = 8, verify = false, log = () => {} }) {
+function createServer ({ version, hashes = false, world: recorded, armor = {}, hotbar = {}, boat = false, maxRadius = 8, budget = 8, verify = false, log = () => {} }) {
   const registry = require('prismarine-registry')('bedrock_' + version)
   const useHashes = !!hashes && registry.supportFeature('blockHashes')
   // (the state ids the world is built with are those start_game will say: hashes, or the indexes)
@@ -97,7 +98,13 @@ function createServer ({ version, hashes = false, world: recorded, maxRadius = 8
     maxRadius,
     log,
     connections,
-    hotbar: hotbarOf(registry),
+    hotbar: Object.entries(hotbar).reduce((slots, [slot, name]) => {
+      const item = itemNamed(registry, name)
+      if (item) slots[Number(slot)] = item
+      return slots
+    }, hotbarOf(registry)),
+    // the armour players start in: head, chest, legs, feet
+    armor: ARMOR_SLOTS.map(slot => (armor[slot] && itemNamed(registry, armor[slot])) || null),
     gameModes: mapperValues(types, 'GameMode').filter(mode => ['survival', 'creative', 'adventure', 'spectator'].includes(mode)),
     // the entities players put in the world (boats), by id (runtime and unique alike)
     entities: new Map(),
@@ -270,6 +277,30 @@ function createServer ({ version, hashes = false, world: recorded, maxRadius = 8
         blobs: blobs.size,
         connections: [...connections].map(c => ({ username: c.username, stage: c.stage, dimension: c.dimension, feet: c.feet, columns: c.chunks.sent.size, ...c.stats, channel: c.channel.stats }))
       }
+    }
+  }
+
+  // a boat on the water nearest the spawn (its top, within 24 blocks across and 8 down)
+  if (boat) {
+    const spawn = world.spawn
+    const isWater = at => water.has(registry.blocksByStateId[server.getBlockStateId(at)]?.id)
+    let best = null
+    for (let dx = -24; dx <= 24; dx++) {
+      for (let dz = -24; dz <= 24; dz++) {
+        const distance = Math.hypot(dx, dz)
+        if (best && distance >= best.distance) continue
+        for (let y = Math.floor(spawn.y) + 2; y >= Math.floor(spawn.y) - 8; y--) {
+          const at = { x: Math.floor(spawn.x) + dx, y, z: Math.floor(spawn.z) + dz }
+          if (!isWater(at)) continue
+          if (!isWater({ ...at, y: y + 1 })) best = { at, distance }
+          break
+        }
+      }
+    }
+    if (best) {
+      const id = server.nextEntityId++
+      const item = itemNamed(registry, 'oak_boat')
+      server.entities.set(id, { id, type: 'minecraft:boat', item: item?.name ?? 'boat', dimension: startDimension, pos: { x: best.at.x + 0.5, y: Math.fround(best.at.y + 1 - BOAT_FLOAT), z: best.at.z + 0.5 }, yaw: 0, rider: null })
     }
   }
 

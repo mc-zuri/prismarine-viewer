@@ -51,6 +51,12 @@
       <label title="the showcase, or a world recorded and imported (worldImport.js)">World <select id="world"><option value="">showcase</option></select></label>
       <label title="client_cache_status: sections and biomes as blobs the client keeps, sent once"><input id="cache" type="checkbox" checked> blob cache</label>
       <label title="start_game's block_network_ids_are_hashes (1.19.80 on)"><input id="hashes" type="checkbox"> hashed block ids</label>
+      <label title="The player's game mode (/gamemode): creative flies and builds at once, survival glides with the elytra it wears">Game mode <select id="gamemode" disabled>
+        <option value="creative">creative</option>
+        <option value="survival">survival</option>
+        <option value="adventure">adventure</option>
+        <option value="spectator">spectator</option>
+      </select></label>
       <button id="join">Join</button>
       <button id="leave">Leave</button>
       <span id="modes" role="group" aria-label="View" title="V (F5 with the mouse locked): first or third person">View

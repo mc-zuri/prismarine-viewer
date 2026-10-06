@@ -66,6 +66,10 @@ const WALKS = {
   teleported: 'Teleported: the walk ended'
 }
 
+// what the player starts with: an elytra worn (a jump in the air glides, out of creative), a boat in the hotbar (in place
+// of the sand), and a boat on the water nearest the spawn (the pond's)
+const START = { armor: { chest: 'elytra' }, hotbar: { 8: 'oak_boat' }, boat: true }
+
 const element = id => document.getElementById(id)
 const ui = {
   version: element('version'),
@@ -74,6 +78,7 @@ const ui = {
   hashes: element('hashes'),
   join: element('join'),
   leave: element('leave'),
+  gamemode: element('gamemode'),
   sensitivity: element('sensitivity'),
   status: element('status'),
   view: element('view'),
@@ -252,7 +257,7 @@ async function join () {
       else if (data.type === 'stats') s.serverStats = data.stats
     }
     worker.onerror = event => reject(new Error(`the server did not start: ${event.message ?? 'see the console'}`))
-    worker.postMessage({ type: 'start', version: v, hashes, world: ui.world.value || undefined, radius: VIEW_DISTANCE, verify })
+    worker.postMessage({ type: 'start', version: v, hashes, world: ui.world.value || undefined, start: START, radius: VIEW_DISTANCE, verify })
   })
   if (!current()) return
   const { port1, port2 } = new MessageChannel()
@@ -284,6 +289,11 @@ async function join () {
   client.on('blockUpdate', (pos, stateId, layer) => viewer.setBlockStateId(new Vec3(pos.x, pos.y, pos.z), stateId, layer))
   client.on('blockEntity', (pos, tag) => viewer.setBlockEntity(new Vec3(pos.x, pos.y, pos.z), tag))
   client.on('hotbar', (slots, selected) => hud.hotbar(slots, selected))
+  // the game mode control shows the player's
+  client.on('gamemode', mode => {
+    ui.gamemode.value = mode
+    ui.gamemode.disabled = false
+  })
   // through a portal: the sky of the dimension (its columns come again)
   client.on('dimension', dimension => { viewer.scene.background = new THREE.Color(SKIES[dimension] ?? SKIES[0]) })
   client.on('message', text => hud.log(text))
@@ -368,7 +378,7 @@ function frame () {
   // (in the eyes: turned by the look, as the mouse says at once; else at the eyes)
   if (placed.distance === 0) viewer.camera.rotation.set(client.look.pitch, client.look.yaw, 0, 'YXZ')
   else viewer.camera.lookAt(placed.target.x, placed.target.y, placed.target.z)
-  playerModel.place(feet, look.yaw, look.pitch, placed.distance > MODEL_DISTANCE, player, client.interaction.held?.name, performance.now())
+  playerModel.place(feet, look.yaw, look.pitch, placed.distance > MODEL_DISTANCE, player, client.interaction.held?.name, performance.now(), client.interaction.armor.map(item => item?.name))
   // the block aimed at: from the eyes along the look (none in the walk view)
   entityModels.place(client.entities, performance.now())
   s.target = mode === 'walk' ? null : client.target(eye, forward(look), REACH)
@@ -516,6 +526,14 @@ function setOptions (given) {
   showOptions()
 }
 for (const input of ui.options) input.addEventListener('change', () => setOptions({ [input.dataset.option]: input.checked }))
+// the game mode chosen: asked of the server (/gamemode); the control shows the mode the server gives
+ui.gamemode.addEventListener('change', () => {
+  const client = session?.client
+  const mode = ui.gamemode.value
+  if (!client?.player) return
+  ui.gamemode.value = client.gamemode
+  if (mode !== client.gamemode) client.chat(`/gamemode ${mode}`)
+})
 ui.maxDrop.addEventListener('change', () => {
   if (ui.maxDrop.validity.valid && ui.maxDrop.value !== '') setOptions({ maxDrop: Number(ui.maxDrop.value) })
 })

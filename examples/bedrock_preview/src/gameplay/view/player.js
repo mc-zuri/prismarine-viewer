@@ -3,6 +3,7 @@
 // frame where the camera puts the player, turned to its look with its head tilted, its body turning after it; its pack
 // animations walk, sneak, sprint and swim it by the engine's state of the player, and it holds the item in hand.
 const RADIANS = Math.PI / 180
+const ARMOR = ['head', 'chest', 'legs', 'feet']
 
 class PlayerModel {
   constructor (viewer) {
@@ -26,8 +27,8 @@ class PlayerModel {
   }
 
   // feet; Bedrock degrees (yaw 0 faces +z, pitch positive looks down); the engine's player (its Bedrock state: the
-  // pose); the item in hand, by name
-  place (feet, yaw, pitch, visible, player, held, now) {
+  // pose); the item in hand, by name; the armour worn, by name (head, chest, legs, feet: an elytra on the chest)
+  place (feet, yaw, pitch, visible, player, held, now, armor = []) {
     const seconds = this.last === undefined ? 0 : (now - this.last) / 1000
     this.last = now
     if (!this.model) {
@@ -43,9 +44,12 @@ class PlayerModel {
     model.object.rotation.y = Math.PI - yaw * RADIANS
     const state = player.bedrock ?? {}
     const flags = ['sneaking', 'sprinting', 'swimming', 'crawling'].filter(flag => state[flag])
-    // (sitting in a boat)
+    // (sitting in a boat; gliding with the elytra)
     if (player.vehicle) flags.push('riding')
-    model.setState({ metadata: { flags: Object.fromEntries(flags.map(flag => [flag, true])) }, held: held || undefined, equipment: held ? { mainhand: held } : {} })
+    if (player.elytraFlying) flags.push('gliding')
+    const equipment = held ? { mainhand: held } : {}
+    ARMOR.forEach((slot, i) => { if (armor[i]) equipment[slot] = armor[i] })
+    model.setState({ metadata: { flags: Object.fromEntries(flags.map(flag => [flag, true])) }, held: held || undefined, equipment })
     model.setMotion({ position: feet, yaw, headYaw: yaw, pitch, onGround: !!player.onGround, inWater: !!player.isInWater, inLava: !!player.isInLava })
     model.setCamera(this.viewer.camera.position)
     if (this.swung) model.swing()

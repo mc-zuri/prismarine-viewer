@@ -77,13 +77,19 @@ class Audit extends EventEmitter {
     if (!bot || !movement || this.hooked === bot) return
     this.hooked = bot
     const simulatePlayer = bot.physics.simulatePlayer
+    // (a prediction from elsewhere than the player, a glide tried from a node of a search, is no prediction of the tick)
+    const elsewhere = new WeakSet()
     bot.physics.simulatePlayer = state => {
+      if (!this.runs.has(state) && !elsewhere.has(state)) {
+        const { pos } = this.client.player
+        if (state.pos.x !== pos.x || state.pos.y !== pos.y || state.pos.z !== pos.z) elsewhere.add(state)
+      }
       const before = inputsOf(state.control, state.yaw, state.pitch)
       const result = simulatePlayer(state)
       // the inputs the tick ran on: those the bot steered the prediction's to (bot.js), else the prediction's own
       const { applied } = state
       const inputs = applied ? inputsOf(applied.control, applied.yaw, applied.pitch) : before
-      if (!this.runs.has(state)) this.runs.set(state, { inputs, after: snapshot(state) })
+      if (!this.runs.has(state) && !elsewhere.has(state)) this.runs.set(state, { inputs, after: snapshot(state) })
       return result
     }
     const step = movement.step

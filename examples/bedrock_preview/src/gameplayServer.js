@@ -3,8 +3,8 @@
 // hands it one end of a MessageChannel, over which its client and the server exchange the game's packets.
 //
 //   page -> worker   { type: 'start', version, hashes, world ('explore', 'explore:nether'; none: the showcase), start
-//                    (what players start with: { armor: { chest: 'elytra' }, hotbar: { 8: 'oak_boat' }, boat: a boat on
-//                    the water near the spawn }), radius, verify }   { type: 'connect' } with the port
+//                    (what players start with: { armor: { chest: 'elytra' }, hotbar: { 8: 'oak_boat', 7: { name:
+//                    'firework_rocket', count: 64 } }, boat: a boat on the water near the spawn }), radius, verify }   { type: 'connect' } with the port
 //                    { type: 'command', line }
 //   worker -> page   { type: 'ready', hashes }   { type: 'log', line }   { type: 'stats', stats }   { type: 'error', message }
 // (protodef runs the code it compiles with eval, which sees the global Buffer)

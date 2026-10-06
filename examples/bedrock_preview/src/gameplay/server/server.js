@@ -25,8 +25,10 @@ const REACH = 8
 const BOAT_FLOAT = 0.05
 const isBoat = name => /(^|_)boat$/.test(name ?? '')
 
-// The server. version: '1.26.51'; hashes: name block states by their hashes (from 1.19.80); armor: what players start wearing, by slot ({ chest: 'elytra' }); hotbar: the items players start with in place of the
-// building blocks, by slot ({ 8: 'oak_boat' }); boat: a boat on the water nearest the spawn; world: a recorded world
+// The server. version: '1.26.51'; hashes: name block states by their hashes (from 1.19.80); armor: what players start
+// wearing, by slot ({ chest: 'elytra' }); hotbar: the items players start with in place of the building blocks, by slot
+// ({ 8: 'oak_boat', 7: { name: 'firework_rocket', count: 64 } }); boat: a boat on the water nearest the spawn; world: a
+// recorded world
 // ({ meta, bin, dimension }: worldImport.js's files, the second unzipped, and the dimension to play: overworld, nether
 // or end), else the showcase; maxRadius: the most chunks a client may see; budget: the columns a connection is sent a
 // tick; verify: read back what is written; log: where its lines go
@@ -98,8 +100,8 @@ function createServer ({ version, hashes = false, world: recorded, armor = {}, h
     maxRadius,
     log,
     connections,
-    hotbar: Object.entries(hotbar).reduce((slots, [slot, name]) => {
-      const item = itemNamed(registry, name)
+    hotbar: Object.entries(hotbar).reduce((slots, [slot, given]) => {
+      const item = typeof given === 'string' ? itemNamed(registry, given) : itemNamed(registry, given.name, given.count)
       if (item) slots[Number(slot)] = item
       return slots
     }, hotbarOf(registry)),

@@ -123,7 +123,7 @@ async function join (version, { cache, hashes, blobStore, log }) {
   let time = 0
   const now = () => time
   // (players start with what the page's start with: an elytra worn, a boat in the hotbar, a boat on the water near them)
-  const server = createServer({ version, hashes, world: recorded, armor: { chest: 'elytra' }, hotbar: { 8: 'oak_boat' }, boat: true, verify: true, log })
+  const server = createServer({ version, hashes, world: recorded, armor: { chest: 'elytra' }, hotbar: { 7: { name: 'firework_rocket', count: 64 }, 8: 'oak_boat' }, boat: true, verify: true, log })
   const { port1, port2 } = new MessageChannel()
   const connection = server.accept(port2)
   const client = createClient({ port: port1, version, cache, blobStore, verify: true, now })
@@ -294,12 +294,13 @@ async function play (version, cache, hashes) {
       // (worn from the join; a boat in the hotbar, and one on the pond)
       if (!client.interaction.elytra) fail('the player does not start wearing the elytra')
       if (!/boat$/.test(client.interaction.hotbar[8]?.name ?? '')) fail('no boat in the hotbar')
+      if (client.interaction.hotbar[7]?.name !== 'firework_rocket' || client.interaction.hotbar[7].count !== 64) fail('no firework rockets in the hotbar')
       const startBoat = [...client.entities.values()].find(entity => /boat/.test(entity.type))
       if (!startBoat || Math.hypot(startBoat.pos.x - start.x, startBoat.pos.z - start.z) > 24) fail(`no boat on the water near the player: ${JSON.stringify(startBoat?.pos)}`)
       const modes = []
       const onMode = mode => modes.push(mode)
       client.on('gamemode', onMode)
-      for (const line of ['/gamemode survival', '/replaceitem entity @s slot.hotbar 8 firework_rocket 16', `/tp ${at.x} ${at.y} ${at.z}`]) client.chat(line)
+      for (const line of ['/gamemode survival', `/tp ${at.x} ${at.y} ${at.z}`]) client.chat(line)
       await session.tick(10)
       client.off('gamemode', onMode)
       if (modes.join() !== 'survival' || client.gamemode !== 'survival') fail(`the game mode went ${modes.join(', ') || 'unchanged'}, not to survival`)
@@ -316,14 +317,15 @@ async function play (version, cache, hashes) {
       client.setControl('jump', false)
       await session.tick(5)
       const glided = seen.gliding
-      client.selectSlot(8)
+      // (the rockets the player starts with)
+      client.selectSlot(7)
       if (!client.useItem()) fail('no firework rocket in hand')
       await session.tick(5)
       client.off('step', onStep)
       if (!glided) fail('a jump in the air with an elytra worn did not glide')
       if (!seen.boosted) fail('the firework rocket did not boost the glide')
-      if (connection.hotbar[8]?.count !== 15 || client.interaction.hotbar[8]?.count !== 15) fail(`firework rockets left: ${connection.hotbar[8]?.count} on the server, ${client.interaction.hotbar[8]?.count} on the client, not 15`)
-      for (const line of ['/replaceitem entity @s slot.armor.chest 0 air', `/replaceitem entity @s slot.hotbar 8 ${server.hotbar[8].name} ${server.hotbar[8].count}`, '/gamemode creative', `/tp ${start.x} ${start.y} ${start.z}`]) client.chat(line)
+      if (connection.hotbar[7]?.count !== 63 || client.interaction.hotbar[7]?.count !== 63) fail(`firework rockets left: ${connection.hotbar[7]?.count} on the server, ${client.interaction.hotbar[7]?.count} on the client, not 63`)
+      for (const line of ['/replaceitem entity @s slot.armor.chest 0 air', '/replaceitem entity @s slot.hotbar 7 firework_rocket 64', '/gamemode creative', `/tp ${start.x} ${start.y} ${start.z}`]) client.chat(line)
       client.selectSlot(0)
       await session.tick(10)
       if (client.interaction.elytra || client.player.elytraFlying) fail('the elytra is still worn, or glides')
@@ -387,7 +389,9 @@ async function play (version, cache, hashes) {
     //   boat       in survival with a boat in the hotbar (no other walk rides one): across the lake, the boat put on it,
     //              got out of on the far bank and picked up
     //   glide ...  in survival with an elytra worn (no other walk glides): down from a tower 20 high it has no other way
-    //              down from, and with firework rockets across flat ground, using some
+    //              down from, with firework rockets across flat ground, using some, and up onto a plateau 10 high
+    //   boat ...   round the bend of a canal, the boat turning no more than the bend asks; and in a boat floating on
+    //              the pond, with none of its own
     //   lake ...   a lake 6 deep: across it, down to its floor, along its floor, from there out onto the bank, and into
     //              it from the bank, every tick in the water but the first a prediction's; across it, it swims
     //              sprinting, and from floor to floor it comes up for air
@@ -450,6 +454,14 @@ async function play (version, cache, hashes) {
           glides: true,
           rockets: true
         },
+        {
+          name: 'glide up',
+          goal: { x: 12, y: G + 10, z: -28 },
+          setup: [...glideLane, `/fill 10 ${G} -30 14 ${G + 9} -26 stone`, `/tp -29.5 ${G} -27.5`],
+          teardown: [...unglide, `/fill 10 ${G} -30 14 ${G + 9} -26 air`],
+          glides: true,
+          rockets: true
+        },
         // across the lake in a boat, in survival
         {
           name: 'boat',
@@ -466,7 +478,38 @@ async function play (version, cache, hashes) {
         { name: 'lake down', goal: { x: -20, y: G - 6, z: 25 }, setup: [...lake, `/tp -11.5 ${G - 1} 25.5`], swims: true },
         { name: 'lake floor', goal: { x: -12, y: G - 6, z: 29 }, setup: [...lake, `/tp -28.5 ${G - 6} 22.5`], swims: true, breathes: true },
         { name: 'lake out', goal: { x: -6, y: G, z: 25 }, setup: [...lake, `/tp -20.5 ${G - 6} 25.5`], swims: true },
-        { name: 'lake in', goal: { x: -25, y: G - 1, z: 25 }, setup: [...lake, `/tp -6.5 ${G} 25.5`], swims: true, afloat: true }
+        { name: 'lake in', goal: { x: -25, y: G - 1, z: 25 }, setup: [...lake, `/tp -6.5 ${G} 25.5`], swims: true, afloat: true },
+        // a canal in the lake's place, between walls 2 high: west along z 22 to 24 from x -12 to -28, then south along x
+        // -28 to -26 to z 27, onto a landing walled in at its end
+        {
+          name: 'boat bend',
+          goal: { x: -27, y: G, z: 28 },
+          setup: ['/gamemode survival', `/fill -30 ${G - 6} 21 -10 ${G + 1} 30 stone`, `/fill -30 ${G + 2} 21 -10 ${G + 3} 30 air`, `/fill -28 ${G - 3} 22 -12 ${G - 1} 24 water`, `/fill -28 ${G - 3} 22 -26 ${G - 1} 27 water`, `/fill -28 ${G} 22 -12 ${G + 1} 24 air`, `/fill -28 ${G} 22 -26 ${G + 1} 29 air`, `/fill -11 ${G} 22 -10 ${G + 1} 24 air`, `/tp -10.5 ${G} 23.5`],
+          options: { boats: true },
+          teardown: [`/replaceitem entity @s slot.hotbar 8 ${server.hotbar[8].name} ${server.hotbar[8].count}`, '/gamemode creative'],
+          rides: true,
+          turns: 200
+        },
+        // across the pond in a boat floating on it (put there first), with none in the hotbar
+        {
+          name: 'boat pond',
+          goal: { x: -25, y: G, z: 12 },
+          setup: ['/gamemode survival', `/tp -8.5 ${G} 12.5`],
+          options: { boats: true },
+          async prepare () {
+            client.chat(`/replaceitem entity @s slot.hotbar 8 ${server.hotbar[8].name} 1`)
+            await session.tick(3)
+            client.selectSlot(8)
+            client.interaction.placeBoat({ pos: { x: -12, y: G - 1, z: 12 } })
+            await session.tick(3)
+            client.chat('/replaceitem entity @s slot.hotbar 8 air')
+            client.selectSlot(0)
+            await session.tick(3)
+          },
+          teardown: [`/replaceitem entity @s slot.hotbar 8 ${server.hotbar[8].name} ${server.hotbar[8].count}`, '/gamemode creative'],
+          rides: true,
+          turns: 300
+        }
       ]
       const walks = recorded ? WORLD_WALKS[recordedName] : showcase
       // (the elytra the player starts in off: only the glide walks glide)
@@ -481,6 +524,7 @@ async function play (version, cache, hashes) {
         for (const line of walk.setup) client.chat(line)
         pathfinder.setOptions({ dig: true, fly: false, boats: false, ...walk.options, humanLike })
         await session.tick(walk.swims ? 30 : 3)
+        if (walk.prepare) await walk.prepare()
         if (walk.settle) await session.until('the world around the walk', 600, () => connection.chunks.settled && !pendingSections(client))
         for (const key of Object.keys(audit.counts)) audit.counts[key] = 0
         let ended = null
@@ -493,8 +537,10 @@ async function play (version, cache, hashes) {
         mismatch = null
         // the ticks it swam (sprinting in the water: the engine's swim), had its head out of the water and ran into a
         // block's side
-        const seen = { swimming: 0, breathing: 0, collided: 0, flying: 0, gliding: 0, riding: 0 }
-        const rockets = () => connection.hotbar[8]?.name === 'firework_rocket' ? connection.hotbar[8].count : 0
+        // (and how far the boat ridden turned, in all: degrees)
+        const seen = { swimming: 0, breathing: 0, collided: 0, flying: 0, gliding: 0, riding: 0, turned: 0 }
+        let boatYaw
+        const rockets = () => connection.hotbar.reduce((sum, item) => sum + (item?.name === 'firework_rocket' ? item.count : 0), 0)
         const rocketsBefore = rockets()
         const entitiesAtStart = new Set(server.entities.keys())
         const onStep = () => {
@@ -504,6 +550,9 @@ async function play (version, cache, hashes) {
           if (bedrock?.flying) seen.flying++
           if (client.player.elytraFlying) seen.gliding++
           if (client.player.vehicle) seen.riding++
+          const yaw = client.player.vehicle?.yaw
+          if (yaw !== undefined && boatYaw !== undefined) seen.turned += Math.abs(yaw - boatYaw)
+          boatYaw = yaw
           const eyes = client.movement.world.getBlock({ x: pos.x, y: pos.y + client.movement.physics.eyeHeight, z: pos.z })
           if (!eyes?.liquid && !/water/.test(eyes?.name ?? '')) seen.breathing++
         }
@@ -529,6 +578,7 @@ async function play (version, cache, hashes) {
           if (walk.sprints && !seen.swimming) fail(`pathfinder ${name}: it never swam (sprinting in the water)`)
           if (walk.rides && !seen.riding) fail(`pathfinder ${name}: it never rode a boat`)
           if (!walk.rides && seen.riding) fail(`pathfinder ${name}: it rode a boat`)
+          if (walk.turns && seen.turned > walk.turns) fail(`pathfinder ${name}: the boat turned ${seen.turned.toFixed(0)}°, more than ${walk.turns}°`)
           if (walk.rides && (!/boat$/.test(connection.hotbar[8]?.name ?? '') || [...server.entities.values()].some(entity => !entitiesAtStart.has(entity.id)))) fail(`pathfinder ${name}: the boat was not picked up`)
           if (walk.glides && !seen.gliding) fail(`pathfinder ${name}: it never glided`)
           if (!walk.glides && seen.gliding) fail(`pathfinder ${name}: it glided`)

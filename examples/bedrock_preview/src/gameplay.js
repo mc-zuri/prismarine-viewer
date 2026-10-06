@@ -66,9 +66,10 @@ const WALKS = {
   teleported: 'Teleported: the walk ended'
 }
 
-// what the player starts with: an elytra worn (a jump in the air glides, out of creative), a boat in the hotbar (in place
-// of the sand), and a boat on the water nearest the spawn (the pond's)
-const START = { armor: { chest: 'elytra' }, hotbar: { 8: 'oak_boat' }, boat: true }
+// what the player starts with: an elytra worn (a jump in the air glides, out of creative), firework rockets and a boat in
+// the hotbar (in place of the bricks and the sand: a rocket used gliding boosts the glide), and a boat on the water
+// nearest the spawn (the pond's)
+const START = { armor: { chest: 'elytra' }, hotbar: { 7: { name: 'firework_rocket', count: 64 }, 8: 'oak_boat' }, boat: true }
 
 const element = id => document.getElementById(id)
 const ui = {

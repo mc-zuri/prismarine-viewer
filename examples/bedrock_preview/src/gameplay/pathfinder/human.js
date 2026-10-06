@@ -124,11 +124,11 @@ class Steering {
   look (yaw, pitch) {
     this.setControlState('back', false)
     if (!this.enabled) return this.body.setLook(yaw, pitch)
-    this.target = this.targetOf(yaw, pitch, this.body.entity.position, !!this.body.state?.isInWater)
+    this.target = this.targetOf(yaw, pitch, this.body.entity.position, !!this.body.state?.isInWater || !!this.body.state?.elytraFlying)
   }
 
   // where the pathfinder looks walking, from the feet: toward the next step, the eyes on the route ahead; in the water
-  // the pathfinder's own pitch, which steers a swimmer
+  // or gliding the pathfinder's own pitch, which steers a swimmer and a glider
   targetOf (yaw, pitch, feet, inWater) {
     const eyes = { x: feet.x, y: feet.y + this.body.eyeHeight, z: feet.z }
     return { yaw: bedrockYaw(yaw), pitch: (inWater ? undefined : restPitch(this.route, feet, eyes)) ?? bedrockPitch(pitch) }
@@ -199,7 +199,7 @@ class Steering {
       this.runs.set(state, run)
     }
     const want = this.enabled
-      ? { target: this.targetOf(state.yaw, state.pitch, state.pos, !!state.isInWater), keys: state.control, released: true }
+      ? { target: this.targetOf(state.yaw, state.pitch, state.pos, !!state.isInWater || !!state.elytraFlying), keys: state.control, released: true }
       : { look: { yaw: state.yaw, pitch: state.pitch }, keys: state.control, released: true }
     const steered = steer(this.enabled, want, run.memory, { look: run.look, onGround: !!state.onGround, inLiquid: !!state.isInWater || !!state.isInLava, flying: !!state.bedrock?.flying, mayFly: !!state.mayFly })
     run.look = steered.look

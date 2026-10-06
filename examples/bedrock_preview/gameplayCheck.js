@@ -330,6 +330,8 @@ async function play (version, cache, hashes) {
     //   swim       across the pond, in creative (its jumps in the water are no double tap)
     //   fly ...    in creative, flying where that is quicker (every other walk does not fly): over a pit too wide to
     //              jump and too deep to climb out of, and up onto a pillar 10 high; it lands at the goal
+    //   glide ...  in survival with an elytra worn (no other walk glides): down from a tower 20 high it has no other way
+    //              down from, and with firework rockets across flat ground, using some
     //   lake ...   a lake 6 deep: across it, down to its floor, along its floor, from there out onto the bank, and into
     //              it from the bank, every tick in the water but the first a prediction's; across it, it swims
     //              sprinting, and from floor to floor it comes up for air
@@ -338,6 +340,9 @@ async function play (version, cache, hashes) {
     if (!recorded || WORLD_WALKS[recordedName]) {
       const back = { x: Math.floor(start.x), y: G, z: Math.floor(start.z) }
       const lake = [`/fill -30 ${G - 6} 21 -10 ${G - 1} 30 water`, `/fill -30 ${G} 21 -10 ${G + 3} 30 air`]
+      // a lane 5 wide along the north edge, clear 20 blocks up; and the elytra worn in survival, then taken off
+      const glideLane = ['/gamemode survival', '/replaceitem entity @s slot.armor.chest 0 elytra', `/fill -31 ${G - 1} -30 30 ${G - 1} -26 stone`, `/fill -31 ${G} -30 0 ${G + 12} -26 air`, `/fill 1 ${G} -30 30 ${G + 12} -26 air`, `/fill -31 ${G + 13} -30 0 ${G + 24} -26 air`, `/fill 1 ${G + 13} -30 30 ${G + 24} -26 air`]
+      const unglide = ['/replaceitem entity @s slot.armor.chest 0 air', `/replaceitem entity @s slot.hotbar 8 ${server.hotbar[8].name} 64`, '/gamemode creative']
       const showcase = [
         { name: 'round', goal: back, setup: [`/fill -1 ${G} ${back.z - 3} 1 ${G + 1} ${back.z - 3} glass`] },
         { name: 'break in', goal: { x: back.x, y: G, z: back.z - 6 }, setup: [`/fill ${back.x - 1} ${G} ${back.z - 7} ${back.x + 1} ${G + 2} ${back.z - 5} glass`, `/fill ${back.x} ${G} ${back.z - 6} ${back.x} ${G + 1} ${back.z - 6} air`], broken: true },
@@ -371,6 +376,23 @@ async function play (version, cache, hashes) {
           setup: [`/fill 19 ${G} 28 19 ${G + 9} 28 stone`, `/tp 20.5 ${G} 28.5`],
           flies: true
         },
+        // gliding, in survival with an elytra worn: down from a tower in the north-east corner along a cleared lane, and
+        // with rockets from the lane's west end to its east end
+        {
+          name: 'glide down',
+          goal: { x: -20, y: G, z: -28 },
+          setup: [...glideLane, `/fill 26 ${G} -29 28 ${G + 19} -27 stone`, `/tp 27.5 ${G + 20} -27.5`],
+          teardown: unglide,
+          glides: true
+        },
+        {
+          name: 'glide rockets',
+          goal: { x: 22, y: G, z: -28 },
+          setup: [...glideLane, '/replaceitem entity @s slot.hotbar 8 firework_rocket 16', `/tp -29.5 ${G} -27.5`],
+          teardown: unglide,
+          glides: true,
+          rockets: true
+        },
         // across the pond, in creative: the jump it swims with is not the double tap that flies
         { name: 'swim', goal: { x: -22, y: G - 1, z: 12 }, setup: [`/tp -11.5 ${G - 1} 12.5`], afloat: true },
         // a lake 6 deep west of the lane: across it, down to its floor, up from there out onto the bank, and into it
@@ -403,12 +425,15 @@ async function play (version, cache, hashes) {
         mismatch = null
         // the ticks it swam (sprinting in the water: the engine's swim), had its head out of the water and ran into a
         // block's side
-        const seen = { swimming: 0, breathing: 0, collided: 0, flying: 0 }
+        const seen = { swimming: 0, breathing: 0, collided: 0, flying: 0, gliding: 0 }
+        const rockets = () => connection.hotbar[8]?.name === 'firework_rocket' ? connection.hotbar[8].count : 0
+        const rocketsBefore = rockets()
         const onStep = () => {
           const { pos, bedrock } = client.player
           if (bedrock?.swimming) seen.swimming++
           if (client.player.isCollidedHorizontally) seen.collided++
           if (bedrock?.flying) seen.flying++
+          if (client.player.elytraFlying) seen.gliding++
           const eyes = client.movement.world.getBlock({ x: pos.x, y: pos.y + client.movement.physics.eyeHeight, z: pos.z })
           if (!eyes?.liquid && !/water/.test(eyes?.name ?? '')) seen.breathing++
         }
@@ -432,6 +457,9 @@ async function play (version, cache, hashes) {
           if (walk.opened && !/open_bit=(1|true)/.test(gateState(server, walk.opened))) fail(`pathfinder ${name}: the gate is not open`)
           if (Math.abs(connection.feet.x - at.x) > 1e-3 || Math.abs(connection.feet.y - at.y) > 1e-3 || Math.abs(connection.feet.z - at.z) > 1e-3) fail(`pathfinder ${name}: the server has the player at ${connection.feet.x},${connection.feet.y},${connection.feet.z}`)
           if (walk.sprints && !seen.swimming) fail(`pathfinder ${name}: it never swam (sprinting in the water)`)
+          if (walk.glides && !seen.gliding) fail(`pathfinder ${name}: it never glided`)
+          if (!walk.glides && seen.gliding) fail(`pathfinder ${name}: it glided`)
+          if (walk.rockets && !(rockets() < rocketsBefore)) fail(`pathfinder ${name}: it used no firework rocket`)
           if (walk.flies && !seen.flying) fail(`pathfinder ${name}: it never flew`)
           if (!walk.flies && seen.flying) fail(`pathfinder ${name}: it flew`)
           if (walk.clean && seen.collided) fail(`pathfinder ${name}: ${seen.collided} ticks against a block's side`)
@@ -441,6 +469,7 @@ async function play (version, cache, hashes) {
           if (mismatch) fail(`pathfinder ${name}: tick ${mismatch.t} at ${mismatch.at.join(' ')} is not the ${mismatch.kind === 'input' ? 'inputs predicted' : 'tick predicted'}: ${mismatch.fields.slice(0, 3).map(f => `${f.field} ${JSON.stringify(f.predicted)} for ${JSON.stringify(f.actual)}`).join(', ')}`)
         }
         client.off('step', onStep)
+        for (const line of walk.teardown ?? []) client.chat(line)
         pathfinder.off('route', onRoute)
         pathfinder.off('end', onEnd)
         pathfinder.stop()

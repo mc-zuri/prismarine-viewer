@@ -15,7 +15,7 @@
 // The plugin tries its moves with prismarine-physics' PlayerState, which must be the Bedrock fork's: the bundle points
 // prismarine-physics there (webpack.config.js), and the Node check puts it in require's cache.
 //
-// A route: { goal, points: [{ x, y, z, move: walk | jump | parkour | drop | fly, breaks, places, opens }], status: walking |
+// A route: { goal, points: [{ x, y, z, move: walk | jump | parkour | drop | fly | glide, breaks, places, opens }], status: walking |
 // partial }: where the player stands at each step, how it gets there, and the blocks it breaks, places and opens on the
 // way, until each is done.
 const { EventEmitter } = require('events')
@@ -144,7 +144,9 @@ class Pathfinder extends EventEmitter {
     this.sprints = this.options.sprint && this.canSprint()
     this.digs = this.options.dig && this.canDig()
     this.flies = this.options.fly && this.canFly()
-    this.bot.pathfinder.setMovements(bedrockMovements(this.bot, { ...this.options, sprint: this.sprints, dig: this.digs, fly: this.flies }))
+    // (a player that may fly flies rather than glides)
+    this.glides = this.options.glide && !this.canFly()
+    this.bot.pathfinder.setMovements(bedrockMovements(this.bot, { ...this.options, sprint: this.sprints, dig: this.digs, fly: this.flies, glide: this.glides }))
   }
 
   canFly () {
@@ -239,7 +241,7 @@ class Pathfinder extends EventEmitter {
     // in creative, or out of it: the plan breaks blocks as the player can
     else if (this.options.dig && this.canDig() !== this.digs) this.useOptions()
     // may fly, or no more: the plan flies as the player can
-    else if (this.options.fly && this.canFly() !== this.flies) this.useOptions()
+    else if ((this.options.fly && this.canFly() !== this.flies) || (this.options.glide && this.canFly() === this.glides)) this.useOptions()
     try {
       this.bot.steering.route = this.path
       if (!this.held) this.bot.emit('physicsTick')
@@ -313,7 +315,7 @@ class Pathfinder extends EventEmitter {
       const x = Number.isInteger(node.x) && Number.isInteger(node.z) ? node.x + 0.5 : node.x
       const z = Number.isInteger(node.x) && Number.isInteger(node.z) ? node.z + 0.5 : node.z
       const rise = node.y - from.y
-      const move = node.fly ? 'fly' : node.parkour ? 'parkour' : rise > STEP_HEIGHT ? 'jump' : rise < -STEP_HEIGHT ? 'drop' : 'walk'
+      const move = node.fly ? 'fly' : node.glide ? 'glide' : node.parkour ? 'parkour' : rise > STEP_HEIGHT ? 'jump' : rise < -STEP_HEIGHT ? 'drop' : 'walk'
       from = { x, y: node.y, z }
       const plan = this.plans.get(node) ?? planned(node)
       return {

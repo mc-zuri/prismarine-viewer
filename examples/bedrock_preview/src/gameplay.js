@@ -392,11 +392,16 @@ function releaseAll () {
   if (session) session.buttons = {}
 }
 
-// left: break, right: place (or use a gate), middle: the block aimed at into the hand (if the hotbar has it)
+// left: break, right: place (or use a gate; aimed at nothing, use the held item: a firework rocket boosts a glide),
+// middle: the block aimed at into the hand (if the hotbar has it)
 function use (button) {
   const s = session
   const client = s?.client
-  if (!client?.player || !s.target) return
+  if (!client?.player) return
+  if (!s.target) {
+    if (button === 2 && client.useItem()) playerModel.swing()
+    return
+  }
   playerModel.swing()
   if (button === 0) client.breakBlock(s.target)
   else if (button === 2) client.placeBlock(s.target)

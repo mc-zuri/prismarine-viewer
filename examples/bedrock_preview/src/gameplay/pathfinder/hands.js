@@ -107,6 +107,11 @@ class Hands {
     this.client.placeBlock(target)
   }
 
+  // Uses the held item in the air: a firework rocket boosts the glide
+  useItem () {
+    if (!this.client.useItem()) throw new Error('use: nothing in hand')
+  }
+
   // Takes an item in hand: its hotbar slot (the inventory past it is not the client's here)
   async equip (item, destination = 'hand') {
     if (destination !== 'hand') throw new Error(`equip: only to the hand, not ${destination}`)

@@ -286,6 +286,39 @@ async function play (version, cache, hashes) {
       if (connection.stats.heldMismatches) fail('the held item is not the hotbar\'s')
     }
 
+    // the elytra, in survival: worn (/replaceitem, the armour window), a jump in the air starts a glide, and a firework
+    // rocket used then boosts it (the client's own boost) and goes from the stack, on the server and the client
+    if (!recorded) {
+      const at = { x: Math.floor(start.x) + 0.5, y: G + 40, z: Math.floor(start.z) + 0.5 }
+      for (const line of ['/gamemode survival', '/replaceitem entity @s slot.armor.chest 0 elytra', '/replaceitem entity @s slot.hotbar 8 firework_rocket 16', `/tp ${at.x} ${at.y} ${at.z}`]) client.chat(line)
+      await session.tick(10)
+      const seen = { gliding: 0, boosted: 0 }
+      const onStep = () => {
+        if (client.player.elytraFlying) seen.gliding++
+        if (client.player.fireworkRocketDuration > 0) seen.boosted++
+      }
+      client.on('step', onStep)
+      if (!client.interaction.elytra) fail('the elytra is not worn')
+      // a jump pressed in the air
+      client.setControl('jump', true)
+      await session.tick(1)
+      client.setControl('jump', false)
+      await session.tick(5)
+      const glided = seen.gliding
+      client.selectSlot(8)
+      if (!client.useItem()) fail('no firework rocket in hand')
+      await session.tick(5)
+      client.off('step', onStep)
+      if (!glided) fail('a jump in the air with an elytra worn did not glide')
+      if (!seen.boosted) fail('the firework rocket did not boost the glide')
+      if (connection.hotbar[8]?.count !== 15 || client.interaction.hotbar[8]?.count !== 15) fail(`firework rockets left: ${connection.hotbar[8]?.count} on the server, ${client.interaction.hotbar[8]?.count} on the client, not 15`)
+      for (const line of ['/replaceitem entity @s slot.armor.chest 0 air', `/replaceitem entity @s slot.hotbar 8 ${server.hotbar[8].name} 64`, '/gamemode creative', `/tp ${start.x} ${start.y} ${start.z}`]) client.chat(line)
+      client.selectSlot(0)
+      await session.tick(10)
+      if (client.interaction.elytra || client.player.elytraFlying) fail('the elytra is still worn, or glides')
+      row.elytra = `glided ${seen.gliding} ticks, boosted ${seen.boosted}`
+    }
+
     // the pathfinder: in the showcase these walks (in a recorded world, its WORLD_WALKS), each must arrive (and not
     // flying) with the server having the player where the client has it:
     //   round      back to the block it started on, past a wall of glass 3 wide across the lane
@@ -504,7 +537,7 @@ async function main () {
         const t0 = Date.now()
         const row = await play(version, cache, hashes)
         if (!row.ok) failed++
-        const cells = `${row.columns ?? '-'} columns ${row.sections ?? '-'} sections, blobs ${row.hits ?? 0} hit ${row.misses ?? 0} missed${cache ? `, again ${row.rejoinMisses ?? '-'} missed` : ''}, walked ${row.walked ?? '-'}${row.pathfinder ? `, pathfinder ${row.pathfinder}` : ''}${row.portals ? `, portals: ${row.portals.trim()}` : ''}`
+        const cells = `${row.columns ?? '-'} columns ${row.sections ?? '-'} sections, blobs ${row.hits ?? 0} hit ${row.misses ?? 0} missed${cache ? `, again ${row.rejoinMisses ?? '-'} missed` : ''}, walked ${row.walked ?? '-'}${row.elytra ? `, elytra ${row.elytra}` : ''}${row.pathfinder ? `, pathfinder ${row.pathfinder}` : ''}${row.portals ? `, portals: ${row.portals.trim()}` : ''}`
         console.log(`${row.ok ? 'ok  ' : 'FAIL'} ${version.padEnd(9)} cache ${cache ? 'on ' : 'off'} hashes ${hashes ? 'on ' : 'off'} ${cells} (${Date.now() - t0} ms)`)
         for (const note of row.notes) console.log(`       ${note}`)
       }

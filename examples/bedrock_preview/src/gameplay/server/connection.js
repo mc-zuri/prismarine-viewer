@@ -20,7 +20,7 @@ const { EventEmitter } = require('events')
 const { createCodec } = require('../protocol/codec')
 const { PacketChannel } = require('../protocol/channel')
 const { ChunkStreamer } = require('./chunks')
-const { EYE_HEIGHT, PLAYER_ID, buildStartGame, abilitiesPacket, inventoryPacket } = require('./startGame')
+const { EYE_HEIGHT, PLAYER_ID, buildStartGame, abilitiesPacket, inventoryPacket, armorPacket, slotPacket } = require('./startGame')
 const { PORTAL_TICKS, portalDestination } = require('./portals')
 const { DIMENSIONS } = require('./recordedWorld')
 
@@ -83,11 +83,14 @@ class Connection extends EventEmitter {
     // a teleport sent: positions far from it are of ticks before the client took it
     this.teleportTarget = null
     this.selectedSlot = 0
+    // what the player holds: its hotbar (the server's to start with) and the armour it wears (head, chest, legs, feet)
+    this.hotbar = server.hotbar.map(item => ({ ...item }))
+    this.armor = [null, null, null, null]
     this.chunks = new ChunkStreamer(this, server)
     this.spawnChunk = { x: Math.floor(this.feet.x) >> 4, z: Math.floor(this.feet.z) >> 4 }
     this.spawnSent = false
     this.columnsAroundSpawn = 0
-    this.stats = { placed: 0, broken: 0, refused: 0, heldMismatches: 0, inputs: 0 }
+    this.stats = { placed: 0, broken: 0, refused: 0, heldMismatches: 0, inputs: 0, used: 0 }
   }
 
   queue (name, params) {
@@ -184,7 +187,8 @@ class Connection extends EventEmitter {
     this.queue('start_game', buildStartGame({ registry: server.registry, codec, spawn: server.worlds.get(this.dimension).spawn, hashes: server.hashes, tick: server.tick, gamemode: this.gamemode, dimension: this.dimension }))
     if (codec.hasPacket('item_registry')) this.queue('item_registry', { itemstates: server.registry.writeItemStates() })
     this.queue(...abilitiesPacket(codec, { gamemode: this.gamemode, flying: this.flying }))
-    this.queue(...inventoryPacket(server.hotbar))
+    this.queue(...inventoryPacket(this.hotbar))
+    this.queue(...armorPacket(this.armor))
     this.queue('player_hotbar', { selected_slot: 0, window_id: 'inventory', select_slot: true })
     this.queue('set_time', { time: server.time })
     if (this.radius) this.chunks.recenter(this.feet)
@@ -302,10 +306,23 @@ class Connection extends EventEmitter {
     this.queue(...abilitiesPacket(this.codec, { gamemode, flying: this.flying }))
   }
 
-  // a block broken, placed or used (an item use on it; the transaction of 1.16.201 is its own container)
+  // a hotbar slot (0 to 8) or an armour slot (0 to 3) holds an item now (null: nothing)
+  setHotbarSlot (slot, item) {
+    this.hotbar[slot] = item ?? undefined
+    this.queue(...slotPacket('inventory', slot, item))
+  }
+
+  setArmorSlot (slot, item) {
+    this.armor[slot] = item ?? null
+    this.queue(...slotPacket('armor', slot, item))
+  }
+
+  // a block broken, placed or used (an item use on it; the transaction of 1.16.201 is its own container), or the held
+  // item used in the air
   transaction (transaction) {
     if (transaction?.transaction_type !== 'item_use') return
     const data = transaction.transaction_data ?? {}
+    if (data.action_type === 'click_air') return this.server.useItem(this, data.hotbar_slot ?? this.selectedSlot)
     const pos = data.block_position
     if (!pos) return
     if (data.action_type === 'break_block') this.server.breakBlock(this, pos)

@@ -102,4 +102,25 @@ function inventoryPacket (hotbar) {
   return ['inventory_content', { window_id: 'inventory', inventory_id: 'inventory', input }]
 }
 
-module.exports = { EYE_HEIGHT, PLAYER_ID, buildStartGame, abilitiesPacket, hotbarOf, inventoryPacket }
+// The armour the player wears: head, chest, legs, feet
+const ARMOR_SLOTS = ['head', 'chest', 'legs', 'feet']
+function armorPacket (armor) {
+  const input = ARMOR_SLOTS.map((_, slot) => stackWire(armor[slot] ?? {}, slot))
+  return ['inventory_content', { window_id: 'armor', inventory_id: 'armor', input }]
+}
+
+// A slot of a window (the inventory's, the armour's) changed
+function slotPacket (window, slot, item) {
+  return ['inventory_slot', { window_id: window, inventory_id: window, slot, item: stackWire(item ?? {}, slot) }]
+}
+
+// An item of the version by name, as the hotbar holds one (a block's item places its block): null where it has none
+function itemNamed (registry, name, count = 1) {
+  const item = registry.itemsByName[String(name).replace(/^minecraft:/, '')]
+  if (!item) return null
+  const block = registry.blocksByName[item.name]
+  const stateId = block?.defaultState
+  return { name: item.name, networkId: item.id, count, metadata: 0, blockRuntimeId: stateId ?? 0, stateId }
+}
+
+module.exports = { EYE_HEIGHT, PLAYER_ID, ARMOR_SLOTS, buildStartGame, abilitiesPacket, hotbarOf, inventoryPacket, armorPacket, slotPacket, itemNamed }

@@ -3,9 +3,11 @@
 // and placing the block it holds against it. The client changes the
 // block itself first, as the game's client predicts, and tells the server with an item use (inventory_transaction);
 // the server's update_block confirms the block or puts back what it is. The hotbar is the inventory's first nine
-// slots, as the server gave them.
+// slots, as the server gave them, and the armour what the armour window has (an elytra worn glides). The held item is
+// used in the air too: a firework rocket boosts a glide (the client's own boost, as the game's client gives itself).
 const { heldItemWire, itemOf } = require('../protocol/items')
 const { gateToggle } = require('../gates')
+const { fieldType } = require('../protocol/schema')
 
 // how far the player reaches (creative)
 const REACH = 6
@@ -84,6 +86,8 @@ class Interaction {
     this.client = client
     this.hotbar = []
     this.selectedSlot = 0
+    // head, chest, legs, feet
+    this.armor = []
     // 'x,y,z' -> the tick the client changed the block on
     this.predictions = new Map()
   }
@@ -106,6 +110,40 @@ class Interaction {
       this.hotbar[slot] = item.networkId ? { ...item, name: registry.items[item.networkId]?.name ?? `item ${item.networkId}` } : undefined
     })
     this.client.emit('hotbar', this.hotbar, this.selectedSlot)
+  }
+
+  // inventory_content / inventory_slot of the armour window
+  setArmor (list, start = 0) {
+    const { registry } = this.client
+    list.forEach((raw, i) => {
+      const item = itemOf(raw)
+      this.armor[start + i] = item.networkId ? { ...item, name: registry.items[item.networkId]?.name ?? `item ${item.networkId}` } : undefined
+    })
+    this.client.emit('armor', this.armor)
+  }
+
+  // whether the player wears an elytra (the chest's)
+  get elytra () {
+    return this.armor[1]?.name === 'elytra'
+  }
+
+  // The held item used in the air (an item use clicking no block): a firework rocket boosts the glide from the next
+  // tick, and in survival one of the stack goes. Whether something was used.
+  useItem () {
+    const { client } = this
+    const item = this.held
+    if (!item || client.gamemode === 'spectator') return false
+    if (item.name === 'firework_rocket') {
+      client.movement.useFirework()
+      if (client.gamemode !== 'creative') {
+        this.hotbar[this.selectedSlot] = item.count > 1 ? { ...item, count: item.count - 1, raw: { ...item.raw, count: item.count - 1 } } : undefined
+        client.emit('hotbar', this.hotbar, this.selectedSlot)
+      }
+    }
+    // (no face: -1, a byte of 255 where the version writes the face in one, from 1.26.50)
+    const face = fieldType(client.codec.types, 'TransactionUseItem', 'face') === 'u8' ? 255 : -1
+    this.use('click_air', { pos: { x: 0, y: 0, z: 0 }, face, point: { x: 0, y: 0, z: 0 }, stateId: 0 }, item)
+    return true
   }
 
   selectSlot (slot, tell = true) {
@@ -181,7 +219,7 @@ class Interaction {
 
   // the item use, as the version writes it (fill gives the fields of the version's transaction: 1.16.201 has one of its
   // own, 1.16.210 another list of actions, 1.26.30 an optional type)
-  use (action, target) {
+  use (action, target, held = this.held) {
     const { client } = this
     const { pos } = client.movement.player
     const eyes = { x: pos.x, y: pos.y + client.movement.physics.eyeHeight, z: pos.z }
@@ -198,7 +236,7 @@ class Interaction {
           face: target.face,
           hotbar_slot: this.selectedSlot,
           hand: 'main_hand',
-          held_item: heldItemWire(this.held?.raw),
+          held_item: heldItemWire(held?.raw),
           player_pos: eyes,
           click_pos: target.point,
           block_runtime_id: target.stateId ?? 0,

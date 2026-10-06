@@ -137,9 +137,11 @@ class Client extends EventEmitter {
         return
       case 'inventory_content':
         if (this.isInventory(params)) this.interaction.setSlots(params.input ?? [])
+        else if (this.isArmor(params)) this.interaction.setArmor(params.input ?? [])
         return
       case 'inventory_slot':
         if (this.isInventory(params)) this.interaction.setSlots([params.item], params.slot)
+        else if (this.isArmor(params)) this.interaction.setArmor([params.item], params.slot)
         return
       case 'player_hotbar':
         if (params.select_slot) this.interaction.selectSlot(params.selected_slot, false)
@@ -188,6 +190,11 @@ class Client extends EventEmitter {
   isInventory (params) {
     const window = params.window_id ?? params.inventory_id
     return window === 'inventory' || window === 0
+  }
+
+  isArmor (params) {
+    const window = params.window_id ?? params.inventory_id
+    return window === 'armor' || window === 120
   }
 
   playStatus (status) {
@@ -294,6 +301,11 @@ class Client extends EventEmitter {
 
   placeBlock (target) {
     return this.interaction.placeBlock(target)
+  }
+
+  // the held item used in the air (a firework rocket boosts a glide)
+  useItem () {
+    return this.movement ? this.interaction.useItem() : false
   }
 
   close (reason = 'left') {

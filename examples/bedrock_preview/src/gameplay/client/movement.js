@@ -131,10 +131,18 @@ class Movement {
     return steps
   }
 
+  // a firework rocket used: the tick to come boosts the glide
+  useFirework () {
+    this.fireworkUsed = true
+  }
+
   step (t) {
     const { client, player, session } = this
     this.prevPos = player.pos.clone()
-    const frame = { t: Number(t), control: { ...client.controls }, yaw: client.look.yaw, pitch: client.look.pitch }
+    // (the elytra worn: the engine glides with it)
+    player.elytraEquipped = client.interaction.elytra
+    const frame = { t: Number(t), control: { ...client.controls }, yaw: client.look.yaw, pitch: client.look.pitch, fireworkUsed: !!this.fireworkUsed }
+    this.fireworkUsed = false
     if (this.ready()) session.tick(player, frame)
     else session.runDue(player, Number(t))
     client.queue('player_auth_input', this.writer.write(this.physics.playerAuthInput(player), t))

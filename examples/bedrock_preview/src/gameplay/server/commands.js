@@ -1,6 +1,19 @@
 // The commands the server knows, sent as a chat line starting with / (command_request): what changes the world, moves
 // the player, or changes its game mode or the time. Coordinates may be relative to the player's feet (~, ~2).
 const { DIMENSIONS } = require('./recordedWorld')
+const { ARMOR_SLOTS, itemNamed } = require('./startGame')
+
+const HOTBAR_SIZE = 9
+const MAX_STACK = 64
+
+// an item by name and a count from 1 to 64 (an item of the version, or an error)
+function itemOf (server, name, count) {
+  const amount = count === undefined ? 1 : Number(count)
+  if (!Number.isInteger(amount) || amount < 1 || amount > MAX_STACK) throw new Error(`not a count: ${count}`)
+  const item = itemNamed(server.registry, name ?? '', amount)
+  if (!item) throw new Error(`the version has no item ${name}`)
+  return item
+}
 
 const HELP = [
   '/setblock <x> <y> <z> <block>[states]  e.g. /setblock ~ ~ ~2 oak_stairs[weirdo_direction=1]',
@@ -8,6 +21,8 @@ const HELP = [
   '/tp <x> <y> <z>',
   '/dimension <overworld|nether|end>  (the world must have it; its portals take you too)',
   '/gamemode <creative|survival|adventure>',
+  '/give <item> [count]  (into the hotbar: the stack of it there, else a free slot)',
+  '/replaceitem entity @s <slot.hotbar <0-8>|slot.armor.<head|chest|legs|feet> 0> <item|air> [count]  e.g. /replaceitem entity @s slot.armor.chest 0 elytra',
   '/time <set|add> <ticks|day|noon|night|midnight>'
 ].join('\n')
 
@@ -91,6 +106,33 @@ function runCommand (server, line, connection) {
         if (!server.gameModes.includes(mode)) return say(`game modes: ${server.gameModes.join(', ')}`)
         connection.setGamemode(mode)
         return say(`game mode ${mode}`)
+      }
+      case 'give': {
+        if (!connection) return say('give is a player\'s')
+        // (BDS names the player first: /give @s elytra)
+        const rest = (args[0] ?? '').startsWith('@') ? args.slice(1) : args
+        const item = itemOf(server, rest[0], rest[1])
+        const hotbar = connection.hotbar
+        let slot = hotbar.findIndex((held, i) => i < HOTBAR_SIZE && held?.name === item.name && held.count + item.count <= MAX_STACK)
+        if (slot >= 0) item.count += hotbar[slot].count
+        else slot = [...Array(HOTBAR_SIZE).keys()].find(i => !hotbar[i])
+        if (slot === undefined) return say('the hotbar is full: /replaceitem entity @s slot.hotbar <0-8> <item>')
+        connection.setHotbarSlot(slot, item)
+        return say(`gave ${rest[1] ?? 1} ${item.name} (hotbar slot ${slot})`)
+      }
+      case 'replaceitem': {
+        if (!connection) return say('replaceitem is a player\'s')
+        const [, , where, index, name, count] = args
+        const armor = /^slot\.armor\.(head|chest|legs|feet)$/.exec(where ?? '')
+        const item = name === 'air' ? null : itemOf(server, name, count)
+        if (armor) {
+          connection.setArmorSlot(ARMOR_SLOTS.indexOf(armor[1]), item)
+          return say(`${armor[1]}: ${item?.name ?? 'nothing'}`)
+        }
+        const slot = Number(index)
+        if (where !== 'slot.hotbar' || !Number.isInteger(slot) || slot < 0 || slot >= HOTBAR_SIZE) return say('/replaceitem entity @s <slot.hotbar <0-8>|slot.armor.<head|chest|legs|feet> 0> <item|air> [count]')
+        connection.setHotbarSlot(slot, item)
+        return say(`hotbar slot ${slot}: ${item?.name ?? 'nothing'}`)
       }
       case 'time': {
         const value = TIMES[args[1]] ?? Number(args[1])

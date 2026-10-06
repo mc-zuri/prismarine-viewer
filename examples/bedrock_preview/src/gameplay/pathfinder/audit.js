@@ -31,6 +31,8 @@ function snapshot (state) {
     isCollidedVertically: !!state.isCollidedVertically,
     jumpTicks: state.jumpTicks ?? 0,
     jumpQueued: !!state.jumpQueued,
+    elytraFlying: !!state.elytraFlying,
+    fireworkRocketDuration: state.fireworkRocketDuration ?? 0,
     bedrock: cloneValue(state.bedrock)
   }
 }

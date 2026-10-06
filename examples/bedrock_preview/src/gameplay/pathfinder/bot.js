@@ -10,8 +10,9 @@ const { Hands, HOTBAR_SIZE } = require('./hands')
 const { Steering } = require('./human')
 const { movementsRegistry } = require('./movements')
 
-// the slots of a mineflayer inventory (the physics reads the armour's: 5 to 8)
+// the slots of a mineflayer inventory (the physics reads the armour's: 5 to 8, the chest 6)
 const INVENTORY_SLOTS = 46
+const ARMOR_SLOT = 5
 
 function createBot (body, blockAt, steering = new Steering(body)) {
   const { client } = body
@@ -66,13 +67,24 @@ function createBot (body, blockAt, steering = new Steering(body)) {
     metadata: { flags: {} }
   }
 
+  // a mineflayer inventory's slots: the armour the client's (an elytra worn glides), the others empty
+  const slots = new Array(INVENTORY_SLOTS).fill(null)
+  for (let i = 0; i < 4; i++) {
+    Object.defineProperty(slots, ARMOR_SLOT + i, {
+      get () {
+        const item = client.interaction.armor[i]
+        return item ? { type: item.networkId, count: item.count, name: item.name.replace(/^minecraft:/, ''), metadata: item.metadata ?? 0, slot: ARMOR_SLOT + i } : null
+      }
+    })
+  }
+
   const bot = new EventEmitter()
   const hands = new Hands(body, steering, (event, ...args) => bot.emit(event, ...args))
   Object.assign(bot, {
     registry: movementsRegistry(client.registry),
     blockAt,
     entity,
-    inventory: { items: inventoryItems, slots: new Array(INVENTORY_SLOTS).fill(null) },
+    inventory: { items: inventoryItems, slots },
     game: {
       get minY () { return (client.chunks.loadedColumn(Math.floor(live().pos.x) >> 4, Math.floor(live().pos.z) >> 4)?.minCY ?? 0) * 16 },
       get gameMode () { return client.gamemode }
@@ -90,6 +102,8 @@ function createBot (body, blockAt, steering = new Steering(body)) {
     placeBlock: (reference, face) => hands.placeBlock(reference, face),
     activateBlock: block => hands.activateBlock(block),
     equip: (item, destination) => hands.equip(item, destination),
+    // the held item used in the air: a firework rocket boosts the glide from the next tick
+    activateItem: () => hands.useItem(),
     // A tick of a prediction, steered as the live tick is (human.js): the controller's yaw, pitch and keys are what the
     // pathfinder wants, and the tick runs on the inputs the client would send for them (kept on the state as applied)
     physics: {
@@ -117,6 +131,9 @@ function createBot (body, blockAt, steering = new Steering(body)) {
     bedrockPhysicsState: { get: () => live().bedrock === undefined ? undefined : cloneValue(live().bedrock) },
     jumpTicks: { get: () => live().jumpTicks ?? 0 },
     jumpQueued: { get: () => live().jumpQueued ?? false },
+    // the glide boost left, and a firework rocket used for the tick to come (the client's, not yet the engine's)
+    fireworkRocketDuration: { get: () => live().fireworkRocketDuration ?? 0 },
+    fireworkUsed: { get: () => !!movement.fireworkUsed },
     abilities: { get: () => ({ flags: { mayFly: !!live().mayFly, flying: !!live().flying }, flySpeed: live().flySpeed, verticalFlySpeed: live().verticalFlySpeed }) },
     food: { get: () => live().food ?? 20 },
     health: { get: () => 20 },

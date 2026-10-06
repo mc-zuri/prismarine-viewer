@@ -169,8 +169,8 @@ function createServer ({ version, hashes = false, world: recorded, maxRadius = 8
     // the block of the hotbar slot, placed against the face clicked
     placeBlock (connection, against, face, slot, held) {
       const offset = [[0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1], [-1, 0, 0], [1, 0, 0]][face]
-      const item = server.hotbar[slot]
-      if (!offset || !item) return
+      const item = connection.hotbar[slot]
+      if (!offset || item?.stateId === undefined) return
       const at = { x: against.x + offset[0], y: against.y + offset[1], z: against.z + offset[2] }
       const dimension = connection.dimension
       const there = registry.blocksByStateId[server.getBlockStateId(at, 0, dimension)]?.name ?? 'air'
@@ -179,6 +179,16 @@ function createServer ({ version, hashes = false, world: recorded, maxRadius = 8
       server.setBlock(at, item.stateId, 0, dimension)
       if (server.getBlockStateId(at, 1, dimension) !== air) server.setBlock(at, air, 1, dimension)
       connection.stats.placed++
+    },
+
+    // the item of the hotbar slot used in the air: a firework rocket goes (one of the stack, but in creative); the
+    // player boosts its own glide with it
+    useItem (connection, slot) {
+      const item = connection.hotbar[slot]
+      if (!item) return
+      connection.stats.used++
+      if (item.name !== 'firework_rocket' || connection.gamemode === 'creative') return
+      connection.setHotbarSlot(slot, item.count > 1 ? { ...item, count: item.count - 1 } : null)
     },
 
     command (line, connection) {

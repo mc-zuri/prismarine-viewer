@@ -292,6 +292,8 @@ async function play (version, cache, hashes) {
     //   break in   into a box of glass shut all round (it breaks its way in)
     //   build up   onto a pillar of glass 3 high (it pillars up beside it, placing blocks under itself)
     //   gate       into a box of glass with a fence gate in its south wall, not breaking blocks (it opens the gate)
+    //   steps      up a stair of blocks 3 wide, sprinting, never running into a block's side (it jumps from far enough
+    //              back to clear each edge)
     //   swim       across the pond, in creative (its jumps in the water are no double tap)
     //   lake ...   a lake 6 deep: across it, down to its floor, along its floor, from there out onto the bank, and into
     //              it from the bank, every tick in the water but the first a prediction's; across it, it swims
@@ -311,6 +313,13 @@ async function play (version, cache, hashes) {
           options: { dig: false },
           setup: [`/fill ${back.x - 5} ${G} ${back.z - 7} ${back.x - 3} ${G + 2} ${back.z - 5} glass`, `/fill ${back.x - 4} ${G} ${back.z - 6} ${back.x - 4} ${G + 1} ${back.z - 5} air`, `/setblock ${back.x - 4} ${G} ${back.z - 5} fence_gate`],
           opened: { x: back.x - 4, y: G, z: back.z - 5 }
+        },
+        // up a stair east of the lane, a block higher every 3 blocks
+        {
+          name: 'steps',
+          goal: { x: 19, y: G + 3, z: 22 },
+          setup: [`/fill 6 ${G - 1} 20 21 ${G - 1} 24 stone`, `/fill 6 ${G} 20 21 ${G + 5} 24 air`, `/fill 11 ${G} 21 20 ${G} 23 stone`, `/fill 14 ${G + 1} 21 20 ${G + 1} 23 stone`, `/fill 17 ${G + 2} 21 20 ${G + 2} 23 stone`, `/tp 7.5 ${G} 22.5`],
+          clean: true
         },
         // across the pond, in creative: the jump it swims with is not the double tap that flies
         { name: 'swim', goal: { x: -22, y: G - 1, z: 12 }, setup: [`/tp -11.5 ${G - 1} 12.5`], afloat: true },
@@ -342,11 +351,13 @@ async function play (version, cache, hashes) {
         pathfinder.on('end', onEnd)
         const { broken, placed } = connection.stats
         mismatch = null
-        // the ticks it swam (sprinting in the water: the engine's swim) and had its head out of the water
-        const seen = { swimming: 0, breathing: 0 }
+        // the ticks it swam (sprinting in the water: the engine's swim), had its head out of the water and ran into a
+        // block's side
+        const seen = { swimming: 0, breathing: 0, collided: 0 }
         const onStep = () => {
           const { pos, bedrock } = client.player
           if (bedrock?.swimming) seen.swimming++
+          if (client.player.isCollidedHorizontally) seen.collided++
           const eyes = client.movement.world.getBlock({ x: pos.x, y: pos.y + client.movement.physics.eyeHeight, z: pos.z })
           if (!eyes?.liquid && !/water/.test(eyes?.name ?? '')) seen.breathing++
         }
@@ -370,6 +381,7 @@ async function play (version, cache, hashes) {
           if (walk.opened && !/open_bit=(1|true)/.test(gateState(server, walk.opened))) fail(`pathfinder ${name}: the gate is not open`)
           if (Math.abs(connection.feet.x - at.x) > 1e-3 || Math.abs(connection.feet.y - at.y) > 1e-3 || Math.abs(connection.feet.z - at.z) > 1e-3) fail(`pathfinder ${name}: the server has the player at ${connection.feet.x},${connection.feet.y},${connection.feet.z}`)
           if (walk.sprints && !seen.swimming) fail(`pathfinder ${name}: it never swam (sprinting in the water)`)
+          if (walk.clean && seen.collided) fail(`pathfinder ${name}: ${seen.collided} ticks against a block's side`)
           if (walk.breathes && !seen.breathing) fail(`pathfinder ${name}: its head never came out of the water`)
           // swimming, every tick but the first (the walk's plan) is a prediction's
           if (walk.swims && audit.counts.unpredicted > 1) fail(`pathfinder ${name}: ${audit.counts.unpredicted} of ${audit.counts.ticks} ticks walked without a prediction`)

@@ -6,6 +6,20 @@
     <style>
       body { font-family: sans-serif; margin: 2em; background: #1d2228; color: #e8e8e8; }
       a { color: #8cc8ff; }
+      .build { margin-top: 2em; padding: 1em 1.4em; background: #252b33; border: 1px solid #353d47; border-radius: 10px; max-width: 980px; overflow-x: auto; }
+      .build h2 { margin: 0 0 0.6em; font-size: 0.85em; letter-spacing: 0.08em; text-transform: uppercase; color: #a7b0bb; }
+      .build h2 span { text-transform: none; letter-spacing: 0; font-weight: normal; margin-left: 0.6em; }
+      .build table { border-collapse: collapse; width: 100%; font-size: 0.92em; }
+      .build td { padding: 0.35em 1.2em 0.35em 0; border-top: 1px solid #353d47; white-space: nowrap; }
+      .build tr:first-child td { border-top: none; }
+      .build td.name { font-weight: bold; }
+      .build tr.nested td.name { font-weight: normal; padding-left: 1.2em; color: #c3cad3; }
+      .build td.branch a { color: #a7b0bb; }
+      .build td.commit { font-family: ui-monospace, Consolas, monospace; }
+      .build .badge { font-size: 0.8em; padding: 0.1em 0.6em; border-radius: 1em; margin-right: 0.4em; }
+      .build .dirty { background: #4a3a14; color: #f0b44a; }
+      .build .copy { background: #1e3a52; color: #8cc8ff; }
+      @media (max-width: 700px) { .build td.repo { display: none; } }
     </style>
   </head>
   <body>
@@ -19,5 +33,60 @@
       <li><a href="particles.html">Particles</a>: every particle effect of a version, those chosen played side by side</li>
       <li><a href="items.html">Items</a>: every item icon of a version and its aux variants, coloured as the game colours them, with what is missing or undyed marked; and a check of every version</li>
     </ul>
+
+    <section id="build" class="build" hidden>
+      <h2>Built from <span id="built"></span></h2>
+      <table id="packages"></table>
+    </section>
+    <script>
+      // the viewer and each fork this site was built with: build.json, by build-site.js (the server works it out)
+      fetch('build.json').then(r => r.ok ? r.json() : null).then(info => {
+        if (!info) return
+        const github = 'https://github.com/'
+        const cell = (className, text, href) => {
+          const td = document.createElement('td')
+          td.className = className
+          if (href && text) {
+            const a = document.createElement('a')
+            a.href = href
+            a.textContent = text
+            td.append(a)
+          } else td.textContent = text ?? ''
+          return td
+        }
+        const badge = (className, text, title) => {
+          const span = document.createElement('span')
+          span.className = 'badge ' + className
+          span.textContent = text
+          span.title = title
+          return span
+        }
+        const rows = info.packages.map(p => {
+          const tr = document.createElement('tr')
+          if (p.of) tr.className = 'nested'
+          const repo = p.repo && github + p.repo
+          const notes = cell('notes')
+          if (p.dirty) notes.append(badge('dirty', 'dirty', 'it has changes not committed'))
+          if (p.from === 'local copy') notes.append(badge('copy', 'local', 'copied from a local checkout'))
+          tr.append(
+            cell('name', (p.of ? '└ ' : '') + p.name),
+            cell('repo', p.repo ?? p.url, repo),
+            cell('branch', p.branch, repo && p.branch && `${repo}/tree/${p.branch}`),
+            cell('commit', p.commit?.slice(0, 7) ?? '?', repo && p.commit && `${repo}/commit/${p.commit}`),
+            notes)
+          return tr
+        })
+        document.getElementById('packages').replaceChildren(...rows)
+        const built = document.getElementById('built')
+        built.textContent = new Date(info.built).toLocaleString()
+        if (info.run) {
+          const a = document.createElement('a')
+          a.href = info.run
+          a.textContent = 'its run'
+          built.append(', ', a)
+        }
+        document.getElementById('build').hidden = false
+      }).catch(() => {})
+    </script>
   </body>
 </html>

@@ -14,6 +14,7 @@ const express = require('express')
 const compression = require('compression')
 const { listRecordings } = require('./recording')
 const { checkExport, bedrockExport } = require('./itemCheck')
+const { buildInfo } = require('./buildInfo')
 
 const port = Number(process.argv[2] ?? process.env.PORT ?? 3000)
 const recordings = process.argv[3] ?? process.env.RECORDINGS ?? null
@@ -41,6 +42,9 @@ app.get(/^\/bedrock-assets\/([^/]+)\/(.+)$/, (req, res) => {
 app.get('/bedrock-items-check.json', (req, res) => {
   checkExport(null, bedrockExport(bedrockData)).then(results => res.json(results), err => res.status(500).json({ error: err.message }))
 })
+
+// what the pages are built from (index.html shows it)
+app.get('/build.json', (req, res) => res.json(buildInfo()))
 
 // the recordings: of public/recordings (what build-site.js lists), and of the directory, served under recordings/ as
 // they are (express.static above sends public's)

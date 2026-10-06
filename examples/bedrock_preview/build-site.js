@@ -6,6 +6,8 @@
 //     its items_textures.json, meta.json and the textures its item icons name, each in the version's folder that
 //     versions.json says holds it (the page finds them there)
 //   - bedrock-items-check.json: every version's item icons checked (itemCheck.js), which the server works out
+//   - build.json: the viewer and each fork the site was built with, their repository, branch and commit (buildInfo.js),
+//     which index.html shows
 //   - recordings/index.json: the recordings the replay lists, those of public/recordings (and of $RECORDINGS, copied
 //     in): the page reads them itself
 //
@@ -17,6 +19,7 @@ const path = require('path')
 const { checkExport, bedrockExport } = require('./itemCheck')
 const { iconsOf } = require('../../viewer/lib/bedrock/itemIcon')
 const { listRecordings } = require('./recording')
+const { buildInfo } = require('./buildInfo')
 
 const out = path.resolve(process.argv[2] ?? '_site')
 const viewerPublic = path.join(__dirname, '../../public')
@@ -80,9 +83,12 @@ async function main () {
   const assetFiles = copyItemAssets(exp, path.join(out, 'bedrock-assets'))
   const check = await checkExport(null, exp)
   fs.writeFileSync(path.join(out, 'bedrock-items-check.json'), JSON.stringify(check))
+  const info = buildInfo()
+  fs.writeFileSync(path.join(out, 'build.json'), JSON.stringify(info, null, 2))
   // (served as they are: no Jekyll)
   fs.writeFileSync(path.join(out, '.nojekyll'), '')
   console.log(`${out}: ${viewerFiles} files of the viewer, ${pageFiles} of the pages, ${assetFiles} of minecraft-assets' Bedrock export (${exp.versions.length} versions), the items checked, ${recordings.length} recordings`)
+  for (const p of info.packages) console.log(`  ${p.of ? '  ' : ''}${p.name}: ${p.repo ?? p.url} ${p.branch} ${p.commit?.slice(0, 7)}${p.dirty ? ' dirty' : ''} (${p.from})`)
 }
 
 main().catch(err => {

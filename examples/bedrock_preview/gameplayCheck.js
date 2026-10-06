@@ -372,6 +372,8 @@ async function play (version, cache, hashes) {
     //   swim       across the pond, in creative (its jumps in the water are no double tap)
     //   fly ...    in creative, flying where that is quicker (every other walk does not fly): over a pit too wide to
     //              jump and too deep to climb out of, and up onto a pillar 10 high; it lands at the goal
+    //   boat       in survival with a boat in the hotbar (no other walk rides one): across the lake, the boat put on it,
+    //              got out of on the far bank and picked up
     //   glide ...  in survival with an elytra worn (no other walk glides): down from a tower 20 high it has no other way
     //              down from, and with firework rockets across flat ground, using some
     //   lake ...   a lake 6 deep: across it, down to its floor, along its floor, from there out onto the bank, and into
@@ -384,6 +386,7 @@ async function play (version, cache, hashes) {
       const lake = [`/fill -30 ${G - 6} 21 -10 ${G - 1} 30 water`, `/fill -30 ${G} 21 -10 ${G + 3} 30 air`]
       // a lane 5 wide along the north edge, clear 20 blocks up; and the elytra worn in survival, then taken off
       const glideLane = ['/gamemode survival', '/replaceitem entity @s slot.armor.chest 0 elytra', `/fill -31 ${G - 1} -30 30 ${G - 1} -26 stone`, `/fill -31 ${G} -30 0 ${G + 12} -26 air`, `/fill 1 ${G} -30 30 ${G + 12} -26 air`, `/fill -31 ${G + 13} -30 0 ${G + 24} -26 air`, `/fill 1 ${G + 13} -30 30 ${G + 24} -26 air`]
+      const boatItem = server.registry.itemsByName.oak_boat ? 'oak_boat' : 'boat'
       const unglide = ['/replaceitem entity @s slot.armor.chest 0 air', `/replaceitem entity @s slot.hotbar 8 ${server.hotbar[8].name} 64`, '/gamemode creative']
       const showcase = [
         { name: 'round', goal: back, setup: [`/fill -1 ${G} ${back.z - 3} 1 ${G + 1} ${back.z - 3} glass`] },
@@ -435,6 +438,14 @@ async function play (version, cache, hashes) {
           glides: true,
           rockets: true
         },
+        // across the lake in a boat, in survival
+        {
+          name: 'boat',
+          goal: { x: -31, y: G, z: 25 },
+          setup: ['/gamemode survival', ...lake, `/replaceitem entity @s slot.hotbar 8 ${boatItem} 1`, `/tp -7.5 ${G} 25.5`],
+          teardown: [`/replaceitem entity @s slot.hotbar 8 ${server.hotbar[8].name} 64`, '/gamemode creative'],
+          rides: true
+        },
         // across the pond, in creative: the jump it swims with is not the double tap that flies
         { name: 'swim', goal: { x: -22, y: G - 1, z: 12 }, setup: [`/tp -11.5 ${G - 1} 12.5`], afloat: true },
         // a lake 6 deep west of the lane: across it, down to its floor, up from there out onto the bank, and into it
@@ -467,7 +478,7 @@ async function play (version, cache, hashes) {
         mismatch = null
         // the ticks it swam (sprinting in the water: the engine's swim), had its head out of the water and ran into a
         // block's side
-        const seen = { swimming: 0, breathing: 0, collided: 0, flying: 0, gliding: 0 }
+        const seen = { swimming: 0, breathing: 0, collided: 0, flying: 0, gliding: 0, riding: 0 }
         const rockets = () => connection.hotbar[8]?.name === 'firework_rocket' ? connection.hotbar[8].count : 0
         const rocketsBefore = rockets()
         const onStep = () => {
@@ -476,6 +487,7 @@ async function play (version, cache, hashes) {
           if (client.player.isCollidedHorizontally) seen.collided++
           if (bedrock?.flying) seen.flying++
           if (client.player.elytraFlying) seen.gliding++
+          if (client.player.vehicle) seen.riding++
           const eyes = client.movement.world.getBlock({ x: pos.x, y: pos.y + client.movement.physics.eyeHeight, z: pos.z })
           if (!eyes?.liquid && !/water/.test(eyes?.name ?? '')) seen.breathing++
         }
@@ -499,6 +511,9 @@ async function play (version, cache, hashes) {
           if (walk.opened && !/open_bit=(1|true)/.test(gateState(server, walk.opened))) fail(`pathfinder ${name}: the gate is not open`)
           if (Math.abs(connection.feet.x - at.x) > 1e-3 || Math.abs(connection.feet.y - at.y) > 1e-3 || Math.abs(connection.feet.z - at.z) > 1e-3) fail(`pathfinder ${name}: the server has the player at ${connection.feet.x},${connection.feet.y},${connection.feet.z}`)
           if (walk.sprints && !seen.swimming) fail(`pathfinder ${name}: it never swam (sprinting in the water)`)
+          if (walk.rides && !seen.riding) fail(`pathfinder ${name}: it never rode a boat`)
+          if (!walk.rides && seen.riding) fail(`pathfinder ${name}: it rode a boat`)
+          if (walk.rides && (!/boat$/.test(connection.hotbar[8]?.name ?? '') || server.entities.size)) fail(`pathfinder ${name}: the boat was not picked up`)
           if (walk.glides && !seen.gliding) fail(`pathfinder ${name}: it never glided`)
           if (!walk.glides && seen.gliding) fail(`pathfinder ${name}: it glided`)
           if (walk.rockets && !(rockets() < rocketsBefore)) fail(`pathfinder ${name}: it used no firework rocket`)

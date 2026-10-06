@@ -7,7 +7,8 @@
 //                last tick: none of them had these inputs (the steering, or the plugin acting on no prediction)
 //   prediction   the first tick of the prediction with those inputs, and the tick: the world changed after it (a block
 //                the hands placed), or the pathfinder read it otherwise
-// and counts the ticks the pathfinder walked with no prediction at all (in the water, breaking, placing).
+// and counts the ticks the pathfinder walked with no prediction at all (in the water, breaking, placing). The tick is the
+// player as the engine left it, before the pathfinder acts on it (getting out of a boat moves the player at once).
 //
 //   const audit = attachAudit(pathfinder)
 //   audit.on('mismatch', ({ t, kind, fields, ... }) => ...)
@@ -62,6 +63,10 @@ class Audit extends EventEmitter {
     this.hooked = null
     this.hook = this.hook.bind(this)
     this.client.on('startGame', this.hook)
+    // the player after each tick, before the pathfinder (a listener of the same event) acts
+    this.after = null
+    this.ticked = () => { this.after = snapshot(this.client.player) }
+    this.client.prependListener('step', this.ticked)
     this.hook()
   }
 
@@ -90,6 +95,7 @@ class Audit extends EventEmitter {
       const inputs = inputsOf(this.client.controls, this.client.look.yaw, this.client.look.pitch)
       // the bot as the pathfinder sees it, a tick on with these inputs (the engine's world, not the bot's cache)
       const seen = ready && walking ? movement.physics.simulatePlayer(new PlayerState(bot, { ...this.client.controls }), movement.world) : null
+      this.after = null
       step.call(movement, t)
       if (!ready || !walking) return
       this.check(t, inputs, runs, seen)
@@ -99,7 +105,7 @@ class Audit extends EventEmitter {
   check (t, inputs, runs, seen) {
     const counts = this.counts
     counts.ticks++
-    const actual = snapshot(this.client.player)
+    const actual = this.after ?? snapshot(this.client.player)
     const context = { t, at: actual.pos, inputs, path: this.pathfinder.path.length }
     const state = differences(snapshot(seen), actual)
     if (state.length) this.mismatch('state', state, context)
@@ -126,6 +132,7 @@ class Audit extends EventEmitter {
 
   close () {
     this.client.off('startGame', this.hook)
+    this.client.off('step', this.ticked)
   }
 }
 

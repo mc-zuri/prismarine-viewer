@@ -11,6 +11,8 @@
 //                  settled on the block
 //   fly            in creative, flies where that is quicker (Movements.allowFlying): it takes off with a double jump and
 //                  lands with another
+//   boats          crosses water in a boat where that is quicker (Movements.allowBoats), with a boat of the hotbar:
+//                  puts it on the water, paddles across, gets out and picks it up
 //   glide          with an elytra worn (out of creative), glides where that is quicker (Movements.allowGliding),
 //                  boosted by the firework rockets of the hotbar
 //   maxDrop        the highest drop it walks off, in blocks: more than 3 hurts in survival
@@ -25,11 +27,12 @@ const DEFAULT_OPTIONS = Object.freeze({
   humanLike: true,
   fly: true,
   glide: true,
+  boats: true,
   maxDrop: 3
 })
 
 const MAX_DROP = 16
-const FLAGS = ['dig', 'place', 'parkour', 'sprint', 'openGates', 'avoidEntities', 'humanLike', 'fly', 'glide']
+const FLAGS = ['dig', 'place', 'parkour', 'sprint', 'openGates', 'avoidEntities', 'humanLike', 'fly', 'glide', 'boats']
 
 // Options as given (a page's, a caller's): the known ones of the right kind over `base`, the drop within 0 to 16
 function pathfinderOptions (given, base = DEFAULT_OPTIONS) {

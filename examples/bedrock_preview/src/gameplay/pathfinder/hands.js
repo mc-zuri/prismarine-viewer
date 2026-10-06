@@ -107,6 +107,14 @@ class Hands {
     this.client.placeBlock(target)
   }
 
+  // Puts the held boat on the water of a cell (its top): looking at it first
+  async placeBoat (position) {
+    const at = floored(position)
+    this.lookAt({ x: at.x + 0.5, y: at.y + 1, z: at.z + 0.5 })
+    await this.react()
+    if (!this.client.interaction.placeBoat({ pos: at })) throw new Error('place: no boat put on the water')
+  }
+
   // Uses the held item in the air: a firework rocket boosts the glide
   useItem () {
     if (!this.client.useItem()) throw new Error('use: nothing in hand')

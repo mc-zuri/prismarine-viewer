@@ -15,7 +15,7 @@
 // The plugin tries its moves with prismarine-physics' PlayerState, which must be the Bedrock fork's: the bundle points
 // prismarine-physics there (webpack.config.js), and the Node check puts it in require's cache.
 //
-// A route: { goal, points: [{ x, y, z, move: walk | jump | parkour | drop | fly | glide, breaks, places, opens }], status: walking |
+// A route: { goal, points: [{ x, y, z, move: walk | jump | parkour | drop | fly | glide | boat, breaks, places, opens }], status: walking |
 // partial }: where the player stands at each step, how it gets there, and the blocks it breaks, places and opens on the
 // way, until each is done.
 const { EventEmitter } = require('events')
@@ -315,7 +315,7 @@ class Pathfinder extends EventEmitter {
       const x = Number.isInteger(node.x) && Number.isInteger(node.z) ? node.x + 0.5 : node.x
       const z = Number.isInteger(node.x) && Number.isInteger(node.z) ? node.z + 0.5 : node.z
       const rise = node.y - from.y
-      const move = node.fly ? 'fly' : node.glide ? 'glide' : node.parkour ? 'parkour' : rise > STEP_HEIGHT ? 'jump' : rise < -STEP_HEIGHT ? 'drop' : 'walk'
+      const move = node.fly ? 'fly' : node.glide ? 'glide' : node.boat ? 'boat' : node.parkour ? 'parkour' : rise > STEP_HEIGHT ? 'jump' : rise < -STEP_HEIGHT ? 'drop' : 'walk'
       from = { x, y: node.y, z }
       const plan = this.plans.get(node) ?? planned(node)
       return {

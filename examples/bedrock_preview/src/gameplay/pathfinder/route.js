@@ -104,7 +104,7 @@ function routePrimitives (route, feet) {
   let jumps = 0
   for (const step of route.points) {
     // (a flight is a run of its own steps, through the air)
-    if (step.move === 'walk' || step.move === 'fly' || step.move === 'glide') {
+    if (step.move === 'walk' || step.move === 'fly' || step.move === 'glide' || step.move === 'boat') {
       run.push(step)
     } else {
       const { takeOff, landing } = airEnds(previous, step, step.move)

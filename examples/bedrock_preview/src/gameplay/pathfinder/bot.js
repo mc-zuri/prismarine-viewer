@@ -5,6 +5,7 @@
 // Bedrock engine the client moves the player with. What it tries runs on copies: the engine changes the player's
 // collision box and attributes in place, and the player the client simulates must not move with them.
 const { EventEmitter } = require('events')
+const { Vec3 } = require('vec3')
 const { cloneValue } = require('prismarine-physics-bedrock/lib/bedrock/network/rewind.ts')
 const { Hands, HOTBAR_SIZE } = require('./hands')
 const { Steering } = require('./human')
@@ -78,6 +79,10 @@ function createBot (body, blockAt, steering = new Steering(body)) {
     })
   }
 
+  // the client's entities (boats) as mineflayer's: by id, named, where the client has them
+  const entityOf = raw => ({ id: Number(raw.runtimeId), name: String(raw.type).replace(/^minecraft:/, ''), position: new Vec3(raw.pos.x, raw.pos.y, raw.pos.z), yaw: raw.yaw, raw })
+  const entities = () => Object.fromEntries([...client.entities.values()].map(raw => [Number(raw.runtimeId), entityOf(raw)]))
+
   const bot = new EventEmitter()
   const hands = new Hands(body, steering, (event, ...args) => bot.emit(event, ...args))
   Object.assign(bot, {
@@ -104,6 +109,11 @@ function createBot (body, blockAt, steering = new Steering(body)) {
     equip: (item, destination) => hands.equip(item, destination),
     // the held item used in the air: a firework rocket boosts the glide from the next tick
     activateItem: () => hands.useItem(),
+    // boats: one put on the water (the block's top), got in, got out of, broken
+    placeEntity: async (block, face) => hands.placeBoat(block.position),
+    mount: entity => client.interactEntity(entity.raw),
+    dismount: () => client.leaveVehicle(),
+    attack: entity => client.attackEntity(entity.raw),
     // A tick of a prediction, steered as the live tick is (human.js): the controller's yaw, pitch and keys are what the
     // pathfinder wants, and the tick runs on the inputs the client would send for them (kept on the state as applied)
     physics: {
@@ -137,8 +147,11 @@ function createBot (body, blockAt, steering = new Steering(body)) {
     abilities: { get: () => ({ flags: { mayFly: !!live().mayFly, flying: !!live().flying }, flySpeed: live().flySpeed, verticalFlySpeed: live().verticalFlySpeed }) },
     food: { get: () => live().food ?? 20 },
     health: { get: () => 20 },
-    // (the world here has no entities)
-    entities: { get: () => ({}) },
+    entities: { get: entities },
+    // the boat ridden (mineflayer's entity), and the engine's state of it and of the client's random numbers: copies
+    vehicle: { get: () => client.riding.entity ? entityOf(client.riding.entity) : null },
+    bedrockVehicle: { get: () => live().vehicle === undefined ? undefined : cloneValue(live().vehicle) },
+    bedrockRandomState: { get: () => live().randomState === undefined ? undefined : new Uint8Array(live().randomState) },
     quickBarSlot: { get: () => client.interaction.selectedSlot },
     heldItem: { get: () => inventoryItems().find(item => item.slot === client.interaction.selectedSlot) ?? null }
   })

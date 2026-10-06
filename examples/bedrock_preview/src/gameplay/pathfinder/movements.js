@@ -32,6 +32,7 @@ function bedrockMovements (bot, options = DEFAULT_OPTIONS) {
   movements.maxDropDown = options.maxDrop
   movements.allowFlying = !!options.fly
   movements.allowGliding = !!options.glide
+  movements.allowBoats = !!options.boats
   for (const name of KEPT) {
     const block = blocksByName[name]
     if (block) movements.blocksCantBreak.add(block.id)

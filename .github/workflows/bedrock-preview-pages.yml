@@ -32,6 +32,13 @@ jobs:
       # dependency: it downloads GitHub's archive of the commit)
       - name: Install
         run: npm install --ignore-scripts
+      # (the commit of each fork installed from GitHub: a fix not pushed to its branch yet does not build here)
+      - name: The forks installed
+        run: |
+          node -e "
+            const { packages } = require('./node_modules/.package-lock.json')
+            for (const [at, p] of Object.entries(packages)) if (/^git/.test(p.resolved ?? '')) console.log(at.replace(/^node_modules\//, ''), p.resolved.replace(/^.*github\.com[/:]/, ''))
+          "
       - name: The data forks, with their data
         run: |
           fork () { # <package> <its repository> <the data repository> <the data's folder in it>

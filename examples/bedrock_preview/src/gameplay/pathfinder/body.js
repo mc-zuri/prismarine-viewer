@@ -52,6 +52,10 @@ function bodyOf (client) {
       const look = lookOf(yaw, pitch)
       client.setLook(look.yaw, look.pitch)
     },
+    // the look in mineflayer's radians, as is
+    setLook (yaw, pitch) {
+      client.setLook(yaw, pitch)
+    },
     lookAt (point) {
       const { yaw, pitch } = lookToward(body.eyes(), point)
       body.look(yaw, pitch)

@@ -79,8 +79,7 @@ function createBot (body, blockAt, steering = new Steering(body)) {
     hands,
     setControlState: (control, pressed) => steering.setControlState(control, pressed),
     clearControlStates: () => steering.clearControlStates(),
-    // (mineflayer's radians to Bedrock's degrees)
-    look: async (yaw, pitch) => steering.look(180 - (yaw * 180) / Math.PI, (-pitch * 180) / Math.PI),
+    look: async (yaw, pitch) => steering.look(yaw, pitch),
     lookAt: async point => steering.lookAt(point),
     dig: block => hands.dig(block),
     stopDigging: () => hands.stopDigging(),

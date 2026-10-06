@@ -58,6 +58,7 @@ const { createCodec } = require('./src/gameplay/protocol/codec')
 const { G } = require('./src/showcase')
 const { exact } = require('prismarine-physics-bedrock/lib/bedrock/index.ts')
 const { attachPathfinder } = require('./src/gameplay/pathfinder')
+const { attachAudit } = require('./src/gameplay/pathfinder/audit')
 
 // packets of old versions whose schema protodef cannot write from defaults (none the gameplay sends)
 const SCHEMA_GAPS = { clientbound_map_item_data: ['1.16.201', '1.16.210'], update_block_synced: ['1.16.201', '1.16.210', '1.16.220', '1.17.0', '1.17.10'], player_armor_damage: ['1.16.201'] }
@@ -278,12 +279,14 @@ async function play (version, cache, hashes) {
     //   build up   onto a pillar of glass 3 high (it pillars up beside it, placing blocks under itself)
     //   gate       into a box of glass with a fence gate in its south wall, not breaking blocks (it opens the gate)
     //   swim       across the pond, in creative (its jumps in the water are no double tap)
+    // once turning and pressing as a person does (humanLike) and once as the pathfinder says; each tick its prediction
+    // of the tick is the tick (audit.js): with the inputs the client sent, and without humanLike, those it predicted
     if (!recorded) {
       const back = { x: Math.floor(start.x), y: G, z: Math.floor(start.z) }
       const walks = [
         { name: 'round', goal: back, setup: [`/fill -1 ${G} ${back.z - 3} 1 ${G + 1} ${back.z - 3} glass`] },
         { name: 'break in', goal: { x: back.x, y: G, z: back.z - 6 }, setup: [`/fill ${back.x - 1} ${G} ${back.z - 7} ${back.x + 1} ${G + 2} ${back.z - 5} glass`, `/fill ${back.x} ${G} ${back.z - 6} ${back.x} ${G + 1} ${back.z - 6} air`], broken: true },
-        { name: 'build up', goal: { x: back.x + 3, y: G + 3, z: back.z - 6 }, setup: [`/fill ${back.x + 3} ${G} ${back.z - 6} ${back.x + 3} ${G + 2} ${back.z - 6} glass`], placed: true },
+        { name: 'build up', goal: { x: back.x + 3, y: G + 3, z: back.z - 6 }, setup: [`/fill ${back.x + 1} ${G} ${back.z - 8} ${back.x + 5} ${G + 4} ${back.z - 4} air`, `/fill ${back.x + 3} ${G} ${back.z - 6} ${back.x + 3} ${G + 2} ${back.z - 6} glass`], placed: true },
         {
           name: 'gate',
           goal: { x: back.x - 4, y: G, z: back.z - 6 },
@@ -295,10 +298,14 @@ async function play (version, cache, hashes) {
         { name: 'swim', goal: { x: -22, y: G - 1, z: 12 }, setup: [`/tp -11.5 ${G - 1} 12.5`] }
       ]
       const pathfinder = attachPathfinder(client, { humanLike: true })
+      const audit = attachAudit(pathfinder)
+      let mismatch = null
+      audit.on('mismatch', m => { mismatch ??= m })
       const results = []
-      for (const walk of walks) {
+      const walkOnce = async (walk, humanLike) => {
+        const name = `${walk.name}${humanLike ? '' : ' (not humanLike)'}`
         for (const line of walk.setup) client.chat(line)
-        pathfinder.setOptions({ dig: true, ...walk.options })
+        pathfinder.setOptions({ dig: true, ...walk.options, humanLike })
         await session.tick(3)
         let ended = null
         let routes = 0
@@ -307,29 +314,38 @@ async function play (version, cache, hashes) {
         pathfinder.on('route', onRoute)
         pathfinder.on('end', onEnd)
         const { broken, placed } = connection.stats
+        mismatch = null
         const refused = pathfinder.goTo(walk.goal)
         if (refused) {
-          fail(`pathfinder ${walk.name}: ${refused}`)
+          fail(`pathfinder ${name}: ${refused}`)
         } else {
-          await session.until(`the pathfinder walk ${walk.name}`, 800, () => ended !== null)
+          await session.until(`the pathfinder walk ${name}`, 800, () => ended !== null)
           await session.tick(3)
           const at = client.player.pos
           const counts = { broken: connection.stats.broken - broken, placed: connection.stats.placed - placed }
-          results.push(`${walk.name} ${ended} (${routes} routes, ${counts.broken} broken, ${counts.placed} placed)`)
-          if (ended !== 'arrived') fail(`pathfinder ${walk.name}: ${ended}`)
-          if (client.player.bedrock?.flying) fail(`pathfinder ${walk.name}: the player flies`)
-          if (Math.floor(at.x) !== walk.goal.x || Math.floor(at.z) !== walk.goal.z || Math.floor(at.y + 1e-3) !== walk.goal.y) fail(`pathfinder ${walk.name}: at ${at}, not ${walk.goal.x} ${walk.goal.y} ${walk.goal.z}`)
-          if (walk.broken && !counts.broken) fail(`pathfinder ${walk.name}: nothing broken`)
-          if (walk.placed && !counts.placed) fail(`pathfinder ${walk.name}: nothing placed`)
-          if (walk.opened && !/open_bit=(1|true)/.test(gateState(server, walk.opened))) fail(`pathfinder ${walk.name}: the gate is not open`)
-          if (Math.abs(connection.feet.x - at.x) > 1e-3 || Math.abs(connection.feet.y - at.y) > 1e-3 || Math.abs(connection.feet.z - at.z) > 1e-3) fail(`pathfinder ${walk.name}: the server has the player at ${connection.feet.x},${connection.feet.y},${connection.feet.z}`)
+          results.push(`${name} ${ended} (${routes} routes, ${counts.broken} broken, ${counts.placed} placed)`)
+          if (ended !== 'arrived') fail(`pathfinder ${name}: ${ended}`)
+          if (client.player.bedrock?.flying) fail(`pathfinder ${name}: the player flies`)
+          if (Math.floor(at.x) !== walk.goal.x || Math.floor(at.z) !== walk.goal.z || Math.floor(at.y + 1e-3) !== walk.goal.y) fail(`pathfinder ${name}: at ${at}, not ${walk.goal.x} ${walk.goal.y} ${walk.goal.z}`)
+          if (walk.broken && !counts.broken) fail(`pathfinder ${name}: nothing broken`)
+          if (walk.placed && !counts.placed) fail(`pathfinder ${name}: nothing placed`)
+          if (walk.opened && !/open_bit=(1|true)/.test(gateState(server, walk.opened))) fail(`pathfinder ${name}: the gate is not open`)
+          if (Math.abs(connection.feet.x - at.x) > 1e-3 || Math.abs(connection.feet.y - at.y) > 1e-3 || Math.abs(connection.feet.z - at.z) > 1e-3) fail(`pathfinder ${name}: the server has the player at ${connection.feet.x},${connection.feet.y},${connection.feet.z}`)
+          // (humanLike's turns and presses are not the plugin's predictions yet)
+          if (mismatch && (!humanLike || mismatch.kind !== 'input')) fail(`pathfinder ${name}: tick ${mismatch.t} at ${mismatch.at.join(' ')} is not the ${mismatch.kind === 'input' ? 'inputs predicted' : 'tick predicted'}: ${mismatch.fields.slice(0, 3).map(f => `${f.field} ${JSON.stringify(f.predicted)} for ${JSON.stringify(f.actual)}`).join(', ')}`)
         }
         pathfinder.off('route', onRoute)
         pathfinder.off('end', onEnd)
         pathfinder.stop()
       }
+      const first = client.player.pos.clone()
+      for (const humanLike of [true, false]) {
+        client.chat(`/tp ${first.x} ${first.y} ${first.z}`)
+        for (const walk of walks) await walkOnce(walk, humanLike)
+      }
       if (connection.stats.refused) fail(`pathfinder: ${connection.stats.refused} refused`)
       row.pathfinder = results.join(', ')
+      audit.close()
       pathfinder.close()
     }
 

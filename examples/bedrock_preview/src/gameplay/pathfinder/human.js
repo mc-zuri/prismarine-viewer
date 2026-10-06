@@ -9,6 +9,7 @@
 // a player that may fly, it is not pressed anew within FLY_TAP_TICKS of the last press, the double tap that flies (as
 // the pathfinder swims, it lets go of jump and wants it again a few ticks later).
 const { CONTROLS, wrapDegrees, facing, lookToward } = require('./body')
+const { bedrockYaw, bedrockPitch } = require('../client/movement')
 
 const EASE = 0.5
 const MAX_YAW = 30
@@ -56,12 +57,14 @@ class Steering {
     this.sinceJump = Infinity
   }
 
-  // The walking look: toward the next step; the pitch is the pathfinder's, or with humanLike the route's ahead. Walking
-  // lets go of the back key the pathfinder holds to back to an edge, which it keeps when it plans again on the way.
+  // The walking look, in mineflayer's radians as the pathfinder gives it: toward the next step; the pitch is the
+  // pathfinder's, or with humanLike the route's ahead. Without humanLike it is the client's as given, so the player
+  // turns as the pathfinder's predictions turn it. Walking lets go of the back key the pathfinder holds to back to an
+  // edge, which it keeps when it plans again on the way.
   look (yaw, pitch) {
     this.setControlState('back', false)
-    if (!this.enabled) return this.body.look(yaw, pitch)
-    this.target = { yaw, pitch: this.restPitch() ?? pitch }
+    if (!this.enabled) return this.body.setLook(yaw, pitch)
+    this.target = { yaw: bedrockYaw(yaw), pitch: this.restPitch() ?? bedrockPitch(pitch) }
   }
 
   // A look at a point: the edge to bridge from, the block to break or place against

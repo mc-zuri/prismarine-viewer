@@ -123,6 +123,25 @@ function getItemMesh (itemName, version, fallback) {
   return group
 }
 
+/**
+ * An item held in a hand: its mesh in a hand bone's space (model pixels, x mirrored), the item's flat side to the
+ * entity's side and its top pointing forward and up, its handle (the bottom left of the sprite) in the hand.
+ */
+function getHeldItemMesh (itemName, version) {
+  const held = new THREE.Object3D()
+  const item = getItemMesh(itemName, version, () => new THREE.Object3D())
+  // (the sprite's bottom left corner at the hand)
+  item.position.set(0.12, 0.12, 0)
+  held.add(item)
+  held.scale.set(-16, 16, 16)
+  // (in the bone's mirrored space a turn about y runs the other way: -90 degrees takes the sprite's right forward;
+  // then 35 degrees down about the arm's axis, its top pointing forward)
+  held.rotation.set(-35 * Math.PI / 180, -Math.PI / 2, 0, 'XYZ')
+  held.position.set(0, -2, -1)
+  held.dispose = () => item.dispose()
+  return held
+}
+
 // Vanilla ItemEntityRenderer: bob sin(age / 10 + bobOffset) * 0.1 + 0.1, spin age / 20 + bobOffset radians.
 function animateItem (mesh, ticks) {
   const item = mesh.item
@@ -131,4 +150,4 @@ function animateItem (mesh, ticks) {
   item.pivot.rotation.y = item.age / 20 + item.bobOffset
 }
 
-module.exports = { getItemMesh, animateItem }
+module.exports = { getItemMesh, getHeldItemMesh, animateItem }

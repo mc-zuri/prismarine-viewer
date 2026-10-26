@@ -90,6 +90,19 @@ function dot (a, b) {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
+// the size of a face of a cube, [u, v]: its uv_size where per-face uv leaves it out
+const faceSize = {
+  north: s => [s[0], s[1]],
+  south: s => [s[0], s[1]],
+  east: s => [s[2], s[1]],
+  west: s => [s[2], s[1]],
+  up: s => [s[0], s[2]],
+  down: s => [s[0], s[2]]
+}
+
+// A cube's uv is a box's ([u, v]: its faces laid out around it on the sheet) or one per face ({ north: { uv, uv_size } },
+// a face it leaves out not drawn). A mirrored box's east and west faces trade places and every face's u runs the
+// other way. A cube's rotation turns it about its pivot (about the model's origin when it has none).
 function addCube (attr, boneId, bone, cube, texWidth = 64, texHeight = 64) {
   const cubeRotation = new THREE.Euler(0, 0, 0)
   if (cube.rotation) {
@@ -97,12 +110,25 @@ function addCube (attr, boneId, bone, cube, texWidth = 64, texHeight = 64) {
     cubeRotation.y = -cube.rotation[1] * Math.PI / 180
     cubeRotation.z = -cube.rotation[2] * Math.PI / 180
   }
-  for (const { dir, corners, u0, v0, u1, v1 } of Object.values(elemFaces)) {
+  const cubePivot = cube.pivot ? new THREE.Vector3(...cube.pivot) : null
+  for (const [faceName, { dir, corners, u0, v0, u1, v1 }] of Object.entries(elemFaces)) {
+    const perFace = Array.isArray(cube.uv) ? null : cube.uv?.[faceName]
+    if (!Array.isArray(cube.uv) && !perFace) continue
+    const mirrored = cube.mirror && !perFace
+    const box = mirrored && faceName === 'east' ? elemFaces.west : mirrored && faceName === 'west' ? elemFaces.east : { u0, v0, u1, v1 }
     const ndx = Math.floor(attr.positions.length / 3)
 
     for (const pos of corners) {
-      const u = (cube.uv[0] + dot(pos[3] ? u1 : u0, cube.size)) / texWidth
-      const v = (cube.uv[1] + dot(pos[4] ? v1 : v0, cube.size)) / texHeight
+      let u, v
+      if (perFace) {
+        const [fw, fh] = perFace.uv_size ?? faceSize[faceName](cube.size)
+        u = (perFace.uv[0] + (pos[3] ? fw : 0)) / texWidth
+        v = (perFace.uv[1] + (pos[4] ? fh : 0)) / texHeight
+      } else {
+        const uSide = mirrored ? 1 - pos[3] : pos[3]
+        u = (cube.uv[0] + dot(uSide ? box.u1 : box.u0, cube.size)) / texWidth
+        v = (cube.uv[1] + dot(pos[4] ? box.v1 : box.v0, cube.size)) / texHeight
+      }
 
       const inflate = cube.inflate ? cube.inflate : 0
       let vecPos = new THREE.Vector3(
@@ -111,7 +137,7 @@ function addCube (attr, boneId, bone, cube, texWidth = 64, texHeight = 64) {
         cube.origin[2] + pos[2] * cube.size[2] + (pos[2] ? inflate : -inflate)
       )
 
-      vecPos = vecPos.applyEuler(cubeRotation)
+      vecPos = cubePivot ? vecPos.sub(cubePivot).applyEuler(cubeRotation).add(cubePivot) : vecPos.applyEuler(cubeRotation)
       vecPos = vecPos.sub(bone.position)
       vecPos = vecPos.applyEuler(bone.rotation)
       vecPos = vecPos.add(bone.position)
@@ -187,7 +213,39 @@ function prepareSkin (texture) {
   return prepared
 }
 
-function getMesh (texture, jsonModel, override) {
+// a bone at its rest pose: at its (absolute) pivot, turned by its rotation
+function restBone (jsonBone) {
+  const bone = new THREE.Bone()
+  bone.name = jsonBone.name
+  if (jsonBone.pivot) {
+    bone.position.x = jsonBone.pivot[0]
+    bone.position.y = jsonBone.pivot[1]
+    bone.position.z = jsonBone.pivot[2]
+  }
+  if (jsonBone.bind_pose_rotation) {
+    bone.rotation.x = -jsonBone.bind_pose_rotation[0] * Math.PI / 180
+    bone.rotation.y = -jsonBone.bind_pose_rotation[1] * Math.PI / 180
+    bone.rotation.z = -jsonBone.bind_pose_rotation[2] * Math.PI / 180
+  } else if (jsonBone.rotation) {
+    bone.rotation.x = -jsonBone.rotation[0] * Math.PI / 180
+    bone.rotation.y = -jsonBone.rotation[1] * Math.PI / 180
+    bone.rotation.z = -jsonBone.rotation[2] * Math.PI / 180
+  }
+  return bone
+}
+
+// a skin given as its pixels ({ width, height, data: RGBA, base64 or bytes }, as Bedrock sends a player's), or a URL
+function loadSkin (skin, cb) {
+  if (!skin || typeof skin !== 'object') return loadTexture(skin, cb)
+  const bytes = typeof skin.data === 'string' ? Uint8Array.from(atob(skin.data), c => c.charCodeAt(0)) : new Uint8Array(skin.data)
+  const texture = new THREE.DataTexture(bytes, skin.width, skin.height, THREE.RGBAFormat)
+  texture.needsUpdate = true
+  cb(texture)
+}
+
+// A model's mesh, on bones of its own, or (shared: another mesh of the entity) on that mesh's skeleton, each cube on
+// the bone of its bone's name: a layer over the entity, armor it wears, which move with its limbs.
+function getMesh (texture, jsonModel, override, shared = null) {
   const bones = {}
 
   const geoData = {
@@ -198,29 +256,16 @@ function getMesh (texture, jsonModel, override) {
     skinIndices: [],
     skinWeights: []
   }
+  const sharedIndex = shared && new Map(shared.skeleton.bones.map((bone, i) => [bone.name.toLowerCase(), i]))
   let i = 0
   for (const jsonBone of jsonModel.bones) {
-    const bone = new THREE.Bone()
-    bone.name = jsonBone.name
-    if (jsonBone.pivot) {
-      bone.position.x = jsonBone.pivot[0]
-      bone.position.y = jsonBone.pivot[1]
-      bone.position.z = jsonBone.pivot[2]
-    }
-    if (jsonBone.bind_pose_rotation) {
-      bone.rotation.x = -jsonBone.bind_pose_rotation[0] * Math.PI / 180
-      bone.rotation.y = -jsonBone.bind_pose_rotation[1] * Math.PI / 180
-      bone.rotation.z = -jsonBone.bind_pose_rotation[2] * Math.PI / 180
-    } else if (jsonBone.rotation) {
-      bone.rotation.x = -jsonBone.rotation[0] * Math.PI / 180
-      bone.rotation.y = -jsonBone.rotation[1] * Math.PI / 180
-      bone.rotation.z = -jsonBone.rotation[2] * Math.PI / 180
-    }
+    const bone = restBone(jsonBone)
     bones[jsonBone.name] = bone
 
     if (jsonBone.cubes) {
+      const boneId = shared ? sharedIndex.get(jsonBone.name.toLowerCase()) ?? 0 : i
       for (const cube of jsonBone.cubes) {
-        addCube(geoData, i, bone, cube, jsonModel.texturewidth, jsonModel.textureheight)
+        addCube(geoData, boneId, bone, cube, jsonModel.texturewidth, jsonModel.textureheight)
       }
     }
     i++
@@ -241,7 +286,7 @@ function getMesh (texture, jsonModel, override) {
     } else rootBones.push(bones[jsonBone.name])
   }
 
-  const skeleton = new THREE.Skeleton(Object.values(bones))
+  const skeleton = shared ? shared.skeleton : new THREE.Skeleton(Object.values(bones))
 
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(geoData.positions, 3))
@@ -253,8 +298,14 @@ function getMesh (texture, jsonModel, override) {
 
   const material = new THREE.MeshLambertMaterial({ transparent: true, skinning: true, alphaTest: 0.1 })
   const mesh = new THREE.SkinnedMesh(geometry, material)
-  mesh.add(...rootBones)
-  mesh.bind(skeleton)
+  if (shared) {
+    // (where it is drawn is where the shared bones are)
+    mesh.bind(skeleton, shared.bindMatrix)
+    mesh.frustumCulled = false
+  } else {
+    mesh.add(...rootBones)
+    mesh.bind(skeleton)
+  }
   // Model space is x-mirrored relative to the world (Bedrock geometry, same as Java's model
   // space, which vanilla draws under a (-1, -1, 1) scale): the left arm sits at +x. Flip it
   // so the player's left limbs end up on their left; the face UVs below are laid out for this.
@@ -267,32 +318,49 @@ function getMesh (texture, jsonModel, override) {
     if (texture) {
       loadTexture(texture, texture => {
         applyTexture(material, texture)
-        if (override) loadTexture(override, texture => applyTexture(material, prepareSkin(texture)))
+        if (override) loadSkin(override, texture => applyTexture(material, prepareSkin(texture)))
       })
     } else {
-      loadTexture(override, texture => applyTexture(material, texture))
+      loadSkin(override, texture => applyTexture(material, texture))
     }
   }
 
   return mesh
 }
 
+// A version's texture path ('textures/entity/zombie/zombie' -> 'textures/<version>/entity/zombie/zombie.png')
+const texturePath = (version, texture) => texture.replace('textures', 'textures/' + version) + '.png'
+
 class Entity {
-  constructor (version, type, scene, textures = {}) {
-    const e = entities[type]
+  // models: the entity models by name (the bundled entities.json; a Bedrock version's own, from its assets). Every
+  // layer after the first is drawn on the first's bones, so that it moves with them.
+  constructor (version, type, scene, textures = {}, models = entities) {
+    const e = models[type]
     if (!e) throw new Error(`Unknown entity ${type}`)
 
+    this.version = version
     this.mesh = new THREE.Object3D()
+    this.skinned = null
     for (const [name, jsonModel] of Object.entries(e.geometry)) {
       const texture = e.textures[name]
       if (!texture && !textures[name]) continue
-      // console.log(JSON.stringify(jsonModel, null, 2))
-      const mesh = getMesh(texture && texture.replace('textures', 'textures/' + version) + '.png', jsonModel, textures[name])
-      /* const skeletonHelper = new THREE.SkeletonHelper( mesh )
-      skeletonHelper.material.linewidth = 2
-      scene.add( skeletonHelper ) */
+      const mesh = getMesh(texture && texturePath(version, texture), jsonModel, textures[name], this.skinned)
+      this.skinned ??= mesh
       this.mesh.add(mesh)
     }
+  }
+
+  // a bone of the entity by name, whatever its case
+  bone (name) {
+    return this.skinned?.skeleton.bones.find(bone => bone.name.toLowerCase() === name.toLowerCase()) ?? null
+  }
+
+  // what it wears (an attachable: { geometry, texture }), on its bones
+  wear (attachable) {
+    if (!this.skinned) return null
+    const mesh = getMesh(texturePath(this.version, attachable.texture), attachable.geometry, undefined, this.skinned)
+    this.mesh.add(mesh)
+    return mesh
   }
 }
 

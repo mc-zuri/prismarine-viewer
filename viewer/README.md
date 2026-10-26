@@ -52,7 +52,18 @@ Set a block at this position
 
 Updates an entity
 
-* e is a prismarine-entity
+* e is a prismarine-entity, or what of it changed: `{ id, name, pos, yaw, width, height, username, itemName, skin, skinModel, cape, equipment, riding, hurt, delete }`
+* `itemName`: a dropped item's item, drawn as its icon (or block)
+* `equipment`: what it holds and wears, as mineflayer keeps it, `[main hand, off hand, boots, leggings, chestplate, helmet]` (item names): the items in its hands; on a Bedrock version, the armor its attachables draw
+* `skin`: a player's skin, a URL, or its pixels as a Bedrock server sends them (`{ width, height, data }`, RGBA, base64 or bytes); `skinModel: 'slim'` for the slim arms
+
+A Bedrock version draws its own entities (its assets' `entities.json`, the client's entity models and textures) and its armor (`attachables.json`).
+
+#### spawnParticle (p)
+
+Spawns a particle effect of a Bedrock version (its assets' `particles.json`, the client's particle effects)
+
+* p is `{ name, pos, count, duration }`: the effect (`minecraft:heart_particle`), where, the particles of an effect the game emits by hand, how long a looping one runs (seconds)
 
 #### updatePrimitive (p)
 
@@ -77,6 +88,7 @@ the emitter should emit these events:
 * loadChunk({x, z, chunk}) ; add a column
 * unloadChunk({x, z}) ; removes a column
 * blockUpdate({pos, stateId}) ; update a block
+* particle(p) ; spawns a particle effect
 it also listen to these events:
 * mouseClick({ origin, direction, button })
 

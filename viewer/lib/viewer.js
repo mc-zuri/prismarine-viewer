@@ -3,6 +3,7 @@ const TWEEN = require('@tweenjs/tween.js')
 const { WorldRenderer } = require('./worldrenderer')
 const { Entities } = require('./entities')
 const { Primitives } = require('./primitives')
+const { Particles } = require('./particles')
 const { getVersion } = require('./version')
 const { Vec3 } = require('vec3')
 
@@ -25,6 +26,7 @@ class Viewer {
     this.world = new WorldRenderer(this.scene)
     this.entities = new Entities(this.scene)
     this.primitives = new Primitives(this.scene, this.camera)
+    this.particles = new Particles(this.scene, this.camera)
 
     this.domElement = renderer.domElement
     this.playerHeight = 1.6
@@ -35,6 +37,7 @@ class Viewer {
     this.world.resetWorld()
     this.entities.clear()
     this.primitives.clear()
+    this.particles.clear()
   }
 
   setVersion (version) {
@@ -49,6 +52,7 @@ class Viewer {
     this.version = version
     this.world.setVersion(version, assetsVersion)
     this.entities.setVersion(assetsVersion)
+    this.particles.setVersion(assetsVersion)
     this.primitives.clear()
     return true
   }
@@ -73,6 +77,11 @@ class Viewer {
     this.primitives.update(p)
   }
 
+  // a particle effect: { name, pos, count, duration } (a Bedrock version's particles.json)
+  spawnParticle (p) {
+    this.particles.spawn(p)
+  }
+
   setFirstPersonCamera (pos, yaw, pitch) {
     if (pos) {
       let y = pos.y + this.playerHeight
@@ -89,6 +98,10 @@ class Viewer {
 
     emitter.on('primitive', (p) => {
       this.updatePrimitive(p)
+    })
+
+    emitter.on('particle', (p) => {
+      this.spawnParticle(p)
     })
 
     emitter.on('loadChunk', ({ x, z, chunk }) => {
@@ -118,6 +131,7 @@ class Viewer {
     TWEEN.update()
     this.world.update()
     this.entities.animate()
+    this.particles.update()
   }
 
   async waitForChunksToRender () {

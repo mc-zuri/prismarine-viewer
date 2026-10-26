@@ -2,56 +2,121 @@ const THREE = require('three')
 const TWEEN = require('@tweenjs/tween.js')
 
 const Entity = require('./entity/Entity')
-const { getItemMesh, animateItem } = require('./entity/Item')
+const { getItemMesh, getHeldItemMesh, animateItem } = require('./entity/Item')
 const { dispose3 } = require('./dispose')
+const { loadJSON } = globalThis.isElectron ? require('./utils.electron.js') : require('./utils')
 
 const { createCanvas } = require('canvas')
+
+const isBedrock = version => String(version).startsWith('bedrock_')
+
+// A Bedrock version's entity models (entities.json) and the armor its entities wear (attachables.json), from its
+// assets, loaded the first time they are needed
+const assetFiles = {}
+function assetFile (version, file) {
+  const key = version + '/' + file
+  if (!assetFiles[key]) assetFiles[key] = new Promise(resolve => loadJSON(`textures/${version}/${file}`, resolve))
+  return assetFiles[key]
+}
 
 function getEntityMesh (entity, scene, version) {
   // A dropped item is its own item's model, and the stack only arrives after the spawn.
   if (entity.itemName) return getItemMesh(entity.itemName, version, () => missingModel(entity))
   if (entity.name === 'item') return null
-  if (entity.name) {
-    try {
-      const textures = {}
-      if (entity.skin) textures.default = entity.skin
-      if (entity.cape) textures.cape = entity.cape
-      const model = entity.name === 'player' && entity.skinModel === 'slim' ? 'player_slim' : entity.name
-      const e = new Entity('1.16.4', model, scene, textures)
+  if (!entity.name) return missingModel(entity)
+  if (!isBedrock(version)) return entityModel(entity, scene, '1.16.4')?.mesh ?? missingModel(entity)
+  // a Bedrock version draws its own entities: the mesh is filled once its models have loaded
+  const group = new THREE.Object3D()
+  assetFile(version, 'entities.json').then(models => {
+    if (group.disposed) return
+    const e = entityModel(entity, scene, version, models)
+    group.add(e ? e.mesh : missingModel(entity))
+    if (!e) return
+    group.model = e
+    group.walk = e.mesh.walk
+    delete e.mesh.walk
+    if (group.equipment) equip(group, version)
+  })
+  group.dispose = () => { group.disposed = true }
+  return group
+}
 
-      if (entity.username !== undefined) {
-        const canvas = createCanvas(500, 100)
+// the Entity of an entity, with its name above it and the limbs it walks with; null when there is no model of it
+function entityModel (entity, scene, version, models) {
+  try {
+    const textures = {}
+    if (entity.skin) textures.default = entity.skin
+    if (entity.cape) textures.cape = entity.cape
+    const model = entity.name === 'player' && entity.skinModel === 'slim' ? 'player_slim' : entity.name
+    if (models && !models[model]) return null
+    const e = new Entity(version, model, scene, textures, models)
+    e.mesh.model = e
 
-        const ctx = canvas.getContext('2d')
-        ctx.font = '50pt Arial'
-        ctx.fillStyle = '#000000'
-        ctx.textAlign = 'left'
-        ctx.textBaseline = 'top'
+    if (entity.username !== undefined) {
+      const canvas = createCanvas(500, 100)
 
-        const txt = entity.username
-        ctx.fillText(txt, 100, 0)
+      const ctx = canvas.getContext('2d')
+      ctx.font = '50pt Arial'
+      ctx.fillStyle = '#000000'
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'top'
 
-        const tex = new THREE.Texture(canvas)
-        tex.needsUpdate = true
-        const spriteMat = new THREE.SpriteMaterial({ map: tex })
-        const sprite = new THREE.Sprite(spriteMat)
-        sprite.position.y += entity.height + 0.6
+      const txt = entity.username
+      ctx.fillText(txt, 100, 0)
 
-        e.mesh.add(sprite)
-      }
-      const limbs = {}
-      for (const name of ['leftArm', 'rightArm', 'leftLeg', 'rightLeg']) limbs[name] = e.mesh.getObjectByName(name)
-      if (Object.values(limbs).every(Boolean)) {
-        e.mesh.walk = { limbs, lastPos: null, speed: 0, pos: 0, age: 0, riding: false, zombieArms: zombieArmMobs.has(entity.name) }
-      }
+      const tex = new THREE.Texture(canvas)
+      tex.needsUpdate = true
+      const spriteMat = new THREE.SpriteMaterial({ map: tex })
+      const sprite = new THREE.Sprite(spriteMat)
+      sprite.position.y += entity.height + 0.6
 
-      return e.mesh
-    } catch (err) {
-      console.log(err)
+      e.mesh.add(sprite)
     }
+    const limbs = {}
+    for (const name of ['leftArm', 'rightArm', 'leftLeg', 'rightLeg']) limbs[name] = e.bone(name)
+    if (Object.values(limbs).every(Boolean)) {
+      e.mesh.walk = { limbs, lastPos: null, speed: 0, pos: 0, age: 0, riding: false, zombieArms: zombieArmMobs.has(entity.name) }
+    }
+
+    return e
+  } catch (err) {
+    console.log(err)
   }
 
-  return missingModel(entity)
+  return null
+}
+
+// What an entity holds and wears (equipment: [main hand, off hand, boots, leggings, chestplate, helmet], as mineflayer
+// keeps it: item names, or items with a name): the items in its hands, on its rightItem and leftItem bones; the armor
+// a Bedrock version's attachables draw, on its bones.
+function equip (mesh, version) {
+  const model = mesh.model
+  if (!model) return
+  for (const old of mesh.equipped ?? []) {
+    old.parent?.remove(old)
+    old.geometry?.dispose()
+    old.material?.dispose()
+    old.dispose?.()
+  }
+  mesh.equipped = []
+  const names = (mesh.equipment ?? []).map(item => typeof item === 'string' ? item : item?.name ?? null)
+  const [mainHand, offHand, ...armor] = names
+  for (const [item, boneName] of [[mainHand, 'rightItem'], [offHand, 'leftItem']]) {
+    const bone = item && model.bone(boneName)
+    if (!bone) continue
+    const held = getHeldItemMesh(item, version)
+    bone.add(held)
+    mesh.equipped.push(held)
+  }
+  if (!isBedrock(version) || !armor.some(Boolean)) return
+  const equipped = mesh.equipped
+  assetFile(version, 'attachables.json').then(attachables => {
+    if (mesh.disposed || mesh.equipped !== equipped) return
+    for (const item of armor) {
+      const attachable = item && attachables[item]
+      if (attachable) equipped.push(model.wear(attachable))
+    }
+  })
 }
 
 function missingModel (entity) {
@@ -160,6 +225,11 @@ class Entities {
     }
 
     const e = this.entities[entity.id]
+
+    if (entity.equipment !== undefined) {
+      e.equipment = entity.equipment
+      equip(e, this.version)
+    }
 
     if (entity.delete) {
       this.scene.remove(e)

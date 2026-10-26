@@ -20,6 +20,12 @@ function defaultSkinModel (uuid) {
   return odd ? 'slim' : undefined
 }
 
+// What an entity holds and wears, as mineflayer keeps it ([main hand, off hand, boots, leggings, chestplate, helmet]):
+// the items' names
+function equipmentOf (e) {
+  return e.equipment?.some(Boolean) ? e.equipment.map(item => item?.name ?? null) : undefined
+}
+
 // A dropped item's stack lives in the entity's metadata, keyed by the raw metadata index.
 function droppedItemName (registry, entity) {
   if (entity.name !== 'item' || !entity.metadata) return undefined
@@ -65,11 +71,14 @@ class WorldView extends EventEmitter {
       // 'move': botPosition,
       entitySpawn: function (e) {
         if (e === bot.entity) return
-        worldView.emitter.emit('entity', { id: e.id, name: e.name, pos: e.position, width: e.width, height: e.height, username: e.username, riding: !!e.vehicle, itemName: droppedItemName(bot.registry, e), ...playerSkin(bot, e) })
+        worldView.emitter.emit('entity', { id: e.id, name: e.name, pos: e.position, width: e.width, height: e.height, username: e.username, riding: !!e.vehicle, itemName: droppedItemName(bot.registry, e), equipment: equipmentOf(e), ...playerSkin(bot, e) })
       },
       entityUpdate: function (e) {
         const itemName = droppedItemName(bot.registry, e)
         if (itemName !== undefined) worldView.emitter.emit('entity', { id: e.id, pos: e.position, itemName })
+      },
+      entityEquip: function (e) {
+        worldView.emitter.emit('entity', { id: e.id, equipment: e.equipment.map(item => item?.name ?? null) })
       },
       entityMoved: function (e) {
         worldView.emitter.emit('entity', { id: e.id, pos: e.position, pitch: e.pitch, yaw: e.yaw })
@@ -111,7 +120,7 @@ class WorldView extends EventEmitter {
     for (const id in bot.entities) {
       const e = bot.entities[id]
       if (e && e !== bot.entity) {
-        this.emitter.emit('entity', { id: e.id, name: e.name, pos: e.position, width: e.width, height: e.height, username: e.username, riding: !!e.vehicle, itemName: droppedItemName(bot.registry, e), ...playerSkin(bot, e) })
+        this.emitter.emit('entity', { id: e.id, name: e.name, pos: e.position, width: e.width, height: e.height, username: e.username, riding: !!e.vehicle, itemName: droppedItemName(bot.registry, e), equipment: equipmentOf(e), ...playerSkin(bot, e) })
       }
     }
   }

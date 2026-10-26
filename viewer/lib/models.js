@@ -237,13 +237,19 @@ function buildRotationMatrix (axis, degree) {
   return matrix
 }
 
+// a direction turned by a variant's rotation (a multiple of 90 degrees), back to whole numbers
+function roundDir (dir) {
+  return dir.map(v => Math.round(v) + 0)
+}
+
 function renderElement (world, cursor, element, doAO, attr, globalMatrix, globalShift, block, biome) {
   const cullIfIdentical = block.name.indexOf('glass') >= 0
 
   for (const face in element.faces) {
     const eFace = element.faces[face]
     const { corners, mask1, mask2 } = elemFaces[face]
-    const dir = matmul3(globalMatrix, elemFaces[face].dir)
+    // (a turn of 90 or 270 degrees leaves components like -1.8e-16, which would floor into the next block)
+    const dir = roundDir(matmul3(globalMatrix, elemFaces[face].dir))
 
     if (eFace.cullface) {
       const neighbor = world.getBlock(cursor.plus(new Vec3(...dir)))
@@ -337,9 +343,9 @@ function renderElement (world, cursor, element, doAO, attr, globalMatrix, global
         const dx = pos[0] * 2 - 1
         const dy = pos[1] * 2 - 1
         const dz = pos[2] * 2 - 1
-        const cornerDir = matmul3(globalMatrix, [dx, dy, dz])
-        const side1Dir = matmul3(globalMatrix, [dx * mask1[0], dy * mask1[1], dz * mask1[2]])
-        const side2Dir = matmul3(globalMatrix, [dx * mask2[0], dy * mask2[1], dz * mask2[2]])
+        const cornerDir = roundDir(matmul3(globalMatrix, [dx, dy, dz]))
+        const side1Dir = roundDir(matmul3(globalMatrix, [dx * mask1[0], dy * mask1[1], dz * mask1[2]]))
+        const side2Dir = roundDir(matmul3(globalMatrix, [dx * mask2[0], dy * mask2[1], dz * mask2[2]]))
         const side1 = world.getBlock(cursor.offset(...side1Dir))
         const side2 = world.getBlock(cursor.offset(...side2Dir))
         const corner = world.getBlock(cursor.offset(...cornerDir))

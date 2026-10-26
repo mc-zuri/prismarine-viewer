@@ -37,7 +37,9 @@ class Viewer {
     this.primitives.clear()
   }
 
-  setVersion (version) {
+  // options (Bedrock): { blockHashes }, whether the columns' state ids are block network hashes (start_game's
+  // block_network_ids_are_hashes) rather than indexes into the version's block states
+  setVersion (version, options = {}) {
     const assetsVersion = getVersion(version)
     if (assetsVersion === null) {
       const msg = `${version} is not supported`
@@ -47,7 +49,7 @@ class Viewer {
     }
     console.log(`Using version: ${version} (assets: ${assetsVersion})`)
     this.version = version
-    this.world.setVersion(version, assetsVersion)
+    this.world.setVersion(version, assetsVersion, options)
     this.entities.setVersion(assetsVersion)
     this.primitives.clear()
     return true

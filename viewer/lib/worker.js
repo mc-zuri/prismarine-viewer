@@ -41,7 +41,7 @@ function setSectionDirty (pos, value = true) {
 
 self.onmessage = ({ data }) => {
   if (data.type === 'version') {
-    world = new World(data.version)
+    world = new World(data.version, data.options)
   } else if (data.type === 'blockStates') {
     blocksStates = data.json
   } else if (data.type === 'dirty') {

@@ -18,16 +18,25 @@ function isCube (shapes) {
   return shape[0] === 0 && shape[1] === 0 && shape[2] === 0 && shape[3] === 1 && shape[4] === 1 && shape[5] === 1
 }
 
+// A Bedrock registry whose state ids are block network hashes, as a server says they are in start_game
+// (block_network_ids_are_hashes, 1.19.80 on) instead of indexes into the version's block states
+function hashedRegistry (version) {
+  const registry = require('prismarine-registry')(version)
+  registry.handleStartGame({ block_network_ids_are_hashes: true })
+  return registry
+}
+
 class World {
-  constructor (version) {
-    this.Chunk = Chunks(version)
+  // options.blockHashes (Bedrock): whether the columns' state ids are block network hashes
+  constructor (version, options = {}) {
+    const bedrock = String(version).startsWith('bedrock_')
+    this.Chunk = Chunks(bedrock && options.blockHashes ? hashedRegistry(version) : version)
     this.columns = {}
     this.blockCache = {}
     // how far each chest's lid is open, by position (models.js: block_entity.lid)
     this.lids = new Map()
     // a Java version before 1.13, whose chests pair by their neighbours; a Bedrock version before 1.2 (0.14 - 1.0),
     // whose doors keep their hinge in their upper half's data (models.js)
-    const bedrock = String(version).startsWith('bedrock_')
     this.bedrock = bedrock
     this.preFlattening = !bedrock && !mcData(version).supportFeature('theFlattening')
     this.legacyDoors = bedrock && !mcData(version).blockStates

@@ -102,7 +102,7 @@ class WorldRenderer {
     }
   }
 
-  setVersion (version, assetsVersion = version) {
+  setVersion (version, assetsVersion = version, options = {}) {
     this.version = version
     this.assetsVersion = assetsVersion
     // Counter rather than a boundsReady comparison: loadJSON may call back
@@ -124,7 +124,7 @@ class WorldRenderer {
     this.resetWorld()
     this.active = true
     for (const worker of this.workers) {
-      worker.postMessage({ type: 'version', version })
+      worker.postMessage({ type: 'version', version, options })
     }
 
     this.updateTexturesData()

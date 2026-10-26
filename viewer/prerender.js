@@ -8,9 +8,11 @@ const fs = require('fs-extra')
 const { supportedVersions, bedrockSupportedVersions } = require('./lib/version')
 const { entityAssets, writeEntityAssets, pruneTextureStore, readIndex, compareVersions } = require('./lib/bedrock/entity/prerender')
 
-// Bedrock versions are built where minecraft-assets has their assets
+// Bedrock versions are built where minecraft-assets has their assets. PRISMARINE_VIEWER_VERSIONS=bedrock (or java)
+// builds only those: a site of Bedrock's needs no Java prerender.
 const bedrockWithAssets = new Set((mcAssets.bedrockVersions ?? []).map(v => 'bedrock_' + v))
-const versions = [...supportedVersions, ...bedrockSupportedVersions.filter(v => bedrockWithAssets.has(v))]
+const only = process.env.PRISMARINE_VIEWER_VERSIONS
+const versions = [...(only === 'bedrock' ? [] : supportedVersions), ...(only === 'java' ? [] : bedrockSupportedVersions.filter(v => bedrockWithAssets.has(v)))]
 
 // World bounds come from prismarine-chunk, which is a build-time dependency here.
 // Emitting them lets the browser fetch the answer instead of bundling

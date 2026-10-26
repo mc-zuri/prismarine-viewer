@@ -1,6 +1,7 @@
 // eslint-disable-next-line no-unused-vars
 const webpack = require('webpack')
 const path = require('path')
+const { lazyMinecraftData } = require('./viewer/webpack/lazyMinecraftData')
 // const BundleAnalyzerPlugin = require('webpack-bundle-analyzer').BundleAnalyzerPlugin
 
 // Minify the index.js by removing unused minecraft data. Since the worker only needs to do meshing,
@@ -59,13 +60,16 @@ const indexConfig = {
   ]
 }
 
-const workerConfig = {
+// The worker meshes the world, with minecraft-data: only the files that takes, and of a version only once a world of
+// it is shown. They are copied to public/mc-data/, which the worker fetches from beside itself.
+const workerConfig = lazyMinecraftData({
   entry: './viewer/lib/worker.js',
   mode: 'production',
   output: {
     path: path.join(__dirname, '/public'),
     filename: './worker.js'
   },
+  performance: { hints: false },
   resolve: {
     fallback: {
       zlib: false
@@ -92,6 +96,6 @@ const workerConfig = {
       cb()
     }
   ]
-}
+})
 
 module.exports = [indexConfig, workerConfig]

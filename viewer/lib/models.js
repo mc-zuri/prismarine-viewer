@@ -1,7 +1,8 @@
 const { Vec3 } = require('vec3')
 const { elemFaces } = require('./elemFaces')
 
-const tints = require('minecraft-data')('1.16.2').tints
+// (the file itself, not minecraft-data's table, which a bundle may fill a version at a time: see mcData.js)
+const tints = require('minecraft-data/minecraft-data/data/pc/1.16.2/tints.json')
 
 // the grass and leaves of the biomes newer than 1.16.2 (by their Java tints)
 const NEWER_TINTS = {

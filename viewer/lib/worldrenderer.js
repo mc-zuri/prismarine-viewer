@@ -2,6 +2,7 @@
 const THREE = require('three')
 const Vec3 = require('vec3').Vec3
 const { loadTexture, loadJSON } = globalThis.isElectron ? require('./utils.electron.js') : require('./utils')
+const { read: readSharedJson } = require('./sharedJson')
 const { EventEmitter } = require('events')
 const { dispose3 } = require('./dispose')
 
@@ -145,9 +146,11 @@ class WorldRenderer {
         return loadJSON(`blocksStates/${this.assetsVersion}.json`, resolve)
       })
     }
+    // (a site may serve them packed, their repeated models once: sharedJson.js)
     loadBlockStates().then((blockStates) => {
+      const json = readSharedJson(blockStates)
       for (const worker of this.workers) {
-        worker.postMessage({ type: 'blockStates', json: blockStates })
+        worker.postMessage({ type: 'blockStates', json })
       }
     })
   }

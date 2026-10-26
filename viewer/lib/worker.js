@@ -13,6 +13,7 @@ if (!global.self) {
 const { Vec3 } = require('vec3')
 const { World } = require('./world')
 const { getSectionGeometry } = require('./models')
+const { preload } = require('./mcData')
 
 let blocksStates = null
 let world = null
@@ -39,11 +40,19 @@ function setSectionDirty (pos, value = true) {
   }
 }
 
-self.onmessage = ({ data }) => {
+async function handle (data) {
   if (data.type === 'version') {
+    world = null
+    // a bundle may have to fetch the minecraft-data of the version first (see mcData.js)
+    await preload(data.version)
     world = new World(data.version, data.options)
   } else if (data.type === 'blockStates') {
     blocksStates = data.json
+  } else if (data.type === 'reset') {
+    world = null
+    blocksStates = null
+  } else if (world === null) {
+    // its version could not be loaded: nothing to apply these to
   } else if (data.type === 'dirty') {
     const loc = new Vec3(data.x, data.y, data.z)
     setSectionDirty(loc, data.value)
@@ -59,10 +68,16 @@ self.onmessage = ({ data }) => {
     world.setBlockEntity(loc, data.tag)
   } else if (data.type === 'lid') {
     world.setLid(new Vec3(data.pos.x, data.pos.y, data.pos.z).floored(), data.step)
-  } else if (data.type === 'reset') {
-    world = null
-    blocksStates = null
   }
+}
+
+// Messages are handled in the order they came, each once the one before is done: the chunks sent while a version's
+// data loads wait for its world.
+let queue = Promise.resolve()
+self.onmessage = ({ data }) => {
+  queue = queue.then(() => handle(data)).catch(err => {
+    postMessage({ type: 'error', message: `${data.type}: ${err?.stack ?? err}` })
+  })
 }
 
 setInterval(() => {

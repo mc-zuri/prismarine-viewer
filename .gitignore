@@ -8,6 +8,7 @@ public/textures/
 public/blocksStates/
 public/entities/
 public/worldBounds.json
+public/mc-data/
 examples/standalone/public/index.js
 examples/standalone/public/worker.js
 examples/standalone/public/textures/

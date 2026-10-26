@@ -10,6 +10,10 @@
 
 const ALIASES = { q: 'query', v: 'variable', t: 'temp', c: 'context' }
 
+// math.random's source: Math.random, or a fixed one where the same input must give the same output (setRandom)
+let random = Math.random
+const setRandom = fn => { random = fn }
+
 const MATH = {
   abs: Math.abs,
   acos: x => Math.acos(x) * 180 / Math.PI,
@@ -20,8 +24,8 @@ const MATH = {
   clamp: (x, lo, hi) => Math.min(Math.max(x, lo), hi),
   cos: x => Math.cos(x * Math.PI / 180),
   sin: x => Math.sin(x * Math.PI / 180),
-  die_roll: (n, lo, hi) => { let s = 0; for (let i = 0; i < n; i++) s += lo + Math.random() * (hi - lo); return s },
-  die_roll_integer: (n, lo, hi) => { let s = 0; for (let i = 0; i < n; i++) s += Math.floor(lo + Math.random() * (hi - lo + 1)); return s },
+  die_roll: (n, lo, hi) => { let s = 0; for (let i = 0; i < n; i++) s += lo + random() * (hi - lo); return s },
+  die_roll_integer: (n, lo, hi) => { let s = 0; for (let i = 0; i < n; i++) s += Math.floor(lo + random() * (hi - lo + 1)); return s },
   exp: Math.exp,
   floor: Math.floor,
   hermite_blend: t => 3 * t * t - 2 * t * t * t,
@@ -33,8 +37,8 @@ const MATH = {
   min_angle: a => ((((a + 180) % 360) + 360) % 360) - 180,
   mod: (a, b) => a % b,
   pow: Math.pow,
-  random: (lo, hi) => lo + Math.random() * (hi - lo),
-  random_integer: (lo, hi) => Math.floor(lo + Math.random() * (hi - lo + 1)),
+  random: (lo, hi) => lo + random() * (hi - lo),
+  random_integer: (lo, hi) => Math.floor(lo + random() * (hi - lo + 1)),
   round: Math.round,
   sqrt: Math.sqrt,
   trunc: Math.trunc,
@@ -220,4 +224,4 @@ function compile (source) {
   return cache.get(source)
 }
 
-module.exports = { compile, fullName }
+module.exports = { compile, fullName, setRandom }

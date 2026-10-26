@@ -42,15 +42,28 @@ class World {
     return this.columns[columnKey(x, z)]
   }
 
-  setBlockStateId (pos, stateId) {
+  // layer: Bedrock's second block layer (1: the water a block stands in), or the block's own (0)
+  setBlockStateId (pos, stateId, layer = 0) {
     const key = columnKey(Math.floor(pos.x / 16) * 16, Math.floor(pos.z / 16) * 16)
 
     const column = this.columns[key]
     // null column means chunk not loaded
     if (!column) return false
 
-    column.setBlockStateId(posInChunk(pos.floored()), stateId)
+    const loc = posInChunk(pos.floored())
+    if (layer) loc.l = layer
+    column.setBlockStateId(loc, stateId)
 
+    return true
+  }
+
+  // tag: the block entity's NBT, or none to remove it
+  setBlockEntity (pos, tag) {
+    const column = this.columns[columnKey(Math.floor(pos.x / 16) * 16, Math.floor(pos.z / 16) * 16)]
+    if (!column?.setBlockEntity) return false
+    const loc = posInChunk(pos.floored())
+    if (tag) column.setBlockEntity({ x: loc.x, y: loc.y, z: loc.z }, tag)
+    else column.removeBlockEntity?.({ x: loc.x, y: loc.y, z: loc.z })
     return true
   }
 

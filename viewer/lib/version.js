@@ -60,4 +60,14 @@ function getVersion (version) {
   return lastOfMajor[toMajor(version)]
 }
 
-module.exports = { getVersion, supportedVersions, bedrockSupportedVersions }
+// the version among candidates (bedrock_<v>) a Bedrock version takes its assets from: itself, else the newest of its
+// major before it, else the oldest of its major after it; null when its major has none
+function nearestBedrockVersion (version, candidates) {
+  if (candidates.includes(version)) return version
+  const bare = version.replace(/^bedrock_/, '')
+  const major = candidates.map(v => v.replace(/^bedrock_/, '')).filter(v => toMajor(v) === toMajor(bare)).sort(compareVersions)
+  const found = major.filter(v => compareVersions(v, bare) < 0).pop() ?? major.find(v => compareVersions(v, bare) > 0)
+  return found ? 'bedrock_' + found : null
+}
+
+module.exports = { getVersion, nearestBedrockVersion, supportedVersions, bedrockSupportedVersions }

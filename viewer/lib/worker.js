@@ -53,7 +53,10 @@ self.onmessage = ({ data }) => {
     world.removeColumn(data.x, data.z)
   } else if (data.type === 'blockUpdate') {
     const loc = new Vec3(data.pos.x, data.pos.y, data.pos.z).floored()
-    world.setBlockStateId(loc, data.stateId)
+    world.setBlockStateId(loc, data.stateId, data.layer)
+  } else if (data.type === 'blockEntity') {
+    const loc = new Vec3(data.pos.x, data.pos.y, data.pos.z).floored()
+    world.setBlockEntity(loc, data.tag)
   } else if (data.type === 'reset') {
     world = null
     blocksStates = null

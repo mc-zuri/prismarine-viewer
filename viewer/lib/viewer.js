@@ -3,7 +3,6 @@ const TWEEN = require('@tweenjs/tween.js')
 const { WorldRenderer } = require('./worldrenderer')
 const { Entities } = require('./entities')
 const { Primitives } = require('./primitives')
-const { Particles } = require('./particles')
 const { getVersion } = require('./version')
 const { Vec3 } = require('vec3')
 
@@ -26,7 +25,6 @@ class Viewer {
     this.world = new WorldRenderer(this.scene)
     this.entities = new Entities(this.scene)
     this.primitives = new Primitives(this.scene, this.camera)
-    this.particles = new Particles(this.scene, this.camera)
 
     this.domElement = renderer.domElement
     this.playerHeight = 1.6
@@ -37,7 +35,6 @@ class Viewer {
     this.world.resetWorld()
     this.entities.clear()
     this.primitives.clear()
-    this.particles.clear()
   }
 
   setVersion (version) {
@@ -52,7 +49,6 @@ class Viewer {
     this.version = version
     this.world.setVersion(version, assetsVersion)
     this.entities.setVersion(assetsVersion)
-    this.particles.setVersion(assetsVersion)
     this.primitives.clear()
     return true
   }
@@ -65,8 +61,14 @@ class Viewer {
     this.world.removeColumn(x, z)
   }
 
-  setBlockStateId (pos, stateId) {
-    this.world.setBlockStateId(pos, stateId)
+  // layer: Bedrock's second block layer (1: the water a block stands in)
+  setBlockStateId (pos, stateId, layer) {
+    this.world.setBlockStateId(pos, stateId, layer)
+  }
+
+  // the block entity at pos (Bedrock: a bed's colour, a head's rotation), its NBT, or none when it is gone
+  setBlockEntity (pos, tag) {
+    this.world.setBlockEntity(pos, tag)
   }
 
   updateEntity (e) {
@@ -77,9 +79,10 @@ class Viewer {
     this.primitives.update(p)
   }
 
-  // a particle effect: { name, pos, count, duration } (a Bedrock version's particles.json)
-  spawnParticle (p) {
-    this.particles.spawn(p)
+  // Bedrock: a particle effect of the version's packs by its identifier, at a position ({ x, y, z }); options: its
+  // variables (as the server gives them), direction
+  spawnParticle (name, position, options = {}) {
+    return this.entities.spawnParticle(name, position, options)
   }
 
   setFirstPersonCamera (pos, yaw, pitch) {
@@ -100,8 +103,8 @@ class Viewer {
       this.updatePrimitive(p)
     })
 
-    emitter.on('particle', (p) => {
-      this.spawnParticle(p)
+    emitter.on('particle', ({ name, pos, variables }) => {
+      this.spawnParticle(name, pos, { variables })
     })
 
     emitter.on('loadChunk', ({ x, z, chunk }) => {
@@ -112,8 +115,12 @@ class Viewer {
       this.removeColumn(x, z)
     })
 
-    emitter.on('blockUpdate', ({ pos, stateId }) => {
-      this.setBlockStateId(new Vec3(pos.x, pos.y, pos.z), stateId)
+    emitter.on('blockUpdate', ({ pos, stateId, layer }) => {
+      this.setBlockStateId(new Vec3(pos.x, pos.y, pos.z), stateId, layer)
+    })
+
+    emitter.on('blockEntity', ({ pos, tag }) => {
+      this.setBlockEntity(new Vec3(pos.x, pos.y, pos.z), tag)
     })
 
     this.domElement.addEventListener('pointerdown', (evt) => {
@@ -130,8 +137,7 @@ class Viewer {
   update () {
     TWEEN.update()
     this.world.update()
-    this.entities.animate()
-    this.particles.update()
+    this.entities.animate(this.camera)
   }
 
   async waitForChunksToRender () {

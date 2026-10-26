@@ -52,18 +52,20 @@ Set a block at this position
 
 Updates an entity
 
-* e is a prismarine-entity, or what of it changed: `{ id, name, pos, yaw, width, height, username, itemName, skin, skinModel, cape, equipment, riding, hurt, delete }`
-* `itemName`: a dropped item's item, drawn as its icon (or block)
-* `equipment`: what it holds and wears, as mineflayer keeps it, `[main hand, off hand, boots, leggings, chestplate, helmet]` (item names): the items in its hands; on a Bedrock version, the armor its attachables draw
-* `skin`: a player's skin, a URL, or its pixels as a Bedrock server sends them (`{ width, height, data }`, RGBA, base64 or bytes); `skinModel: 'slim'` for the slim arms
+* e is a prismarine-entity, or what of it changed: `{ id, name, pos, yaw, pitch, width, height, username, itemName, skin, skinModel, cape, equipment, riding, hurt, delete }`
+* `itemName`: a dropped item's item, drawn as its icon (or block); `itemAux` its aux value on Bedrock (a bed's colour)
+* `equipment`: what it holds and wears, as mineflayer keeps it, `[main hand, off hand, boots, leggings, chestplate, helmet]` (items or their names), or by slot `{ mainhand, offhand, head, chest, legs, feet, body }`
+* Bedrock also: `metadata` (its entity data: flags, variant, colour...), `properties` (its entity properties by name), `headYaw`, `onGround`, `inWater`, `health`, `maxHealth`, `vehicle`, `event` (an entity event by the protocol's name: `hurt_animation`, `death_animation`, `arm_swing`...), `animation` (one the server plays: animate_entity), `bedrockSkin` (a player's skin, `encodeSkin()` of `viewer/lib/bedrock/entity/skinData.js` of its skin record)
 
-A Bedrock version draws its own entities (its assets' `entities.json`, the client's entity models and textures) and its armor (`attachables.json`).
+A Bedrock version draws its entities with its own client entities, animated as the game animates them (`viewer/lib/bedrock`).
 
-#### spawnParticle (p)
+#### spawnParticle (name, position, options)
 
-Spawns a particle effect of a Bedrock version (its assets' `particles.json`, the client's particle effects)
+Spawns a particle effect of a Bedrock version's packs
 
-* p is `{ name, pos, count, duration }`: the effect (`minecraft:heart_particle`), where, the particles of an effect the game emits by hand, how long a looping one runs (seconds)
+* name: its identifier (`minecraft:heart_particle`, `minecraft:` may be left out)
+* position: `{ x, y, z }`
+* options: `{ variables, direction }`, its Molang variables as the server gives them
 
 #### updatePrimitive (p)
 
@@ -87,8 +89,9 @@ the emitter should emit these events:
 * primitive(p) ; updates a primitive
 * loadChunk({x, z, chunk}) ; add a column
 * unloadChunk({x, z}) ; removes a column
-* blockUpdate({pos, stateId}) ; update a block
-* particle(p) ; spawns a particle effect
+* blockUpdate({pos, stateId, layer}) ; update a block (layer 1: Bedrock's water a block stands in)
+* blockEntity({pos, tag}) ; a block entity's NBT changed (Bedrock: a bed's colour)
+* particle({name, pos, variables}) ; spawns a particle effect
 it also listen to these events:
 * mouseClick({ origin, direction, button })
 

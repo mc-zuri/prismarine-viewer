@@ -193,10 +193,24 @@ class WorldRenderer {
     })
   }
 
-  setBlockStateId (pos, stateId) {
+  // layer: Bedrock's second block layer (1: the water a block stands in), or the block's own (0)
+  setBlockStateId (pos, stateId, layer = 0) {
     for (const worker of this.workers) {
-      worker.postMessage({ type: 'blockUpdate', pos, stateId })
+      worker.postMessage({ type: 'blockUpdate', pos, stateId, layer })
     }
+    this.setBlockDirty(pos)
+  }
+
+  // the block entity at pos changed (a bed's colour): tag its NBT, or none when it is gone
+  setBlockEntity (pos, tag) {
+    for (const worker of this.workers) {
+      worker.postMessage({ type: 'blockEntity', pos, tag })
+    }
+    this.setBlockDirty(pos)
+  }
+
+  // the section of a changed block, and those beside it that it touches
+  setBlockDirty (pos) {
     this.setSectionDirty(pos)
     if ((pos.x & 15) === 0) this.setSectionDirty(pos.offset(-16, 0, 0))
     if ((pos.x & 15) === 15) this.setSectionDirty(pos.offset(16, 0, 0))

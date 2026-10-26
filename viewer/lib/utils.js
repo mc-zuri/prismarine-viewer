@@ -48,11 +48,28 @@ function loadPixels (texture, cb) {
   }
 }
 
-function loadJSON (json, cb) {
+// onError: called instead of throwing when the file cannot be had
+function loadJSON (json, cb, onError) {
   if (process.platform === 'browser') {
-    return require('./utils.web').loadJSON(json, cb)
+    return require('./utils.web').loadJSON(json, cb, onError)
   }
-  cb(require(path.resolve(__dirname, '../../public/' + json)))
+  let data
+  try {
+    data = require(path.resolve(__dirname, '../../public/' + json))
+  } catch (err) {
+    if (!onError) throw err
+    return onError(err)
+  }
+  cb(data)
 }
 
-module.exports = { loadTexture, loadPixels, loadJSON }
+// the image itself, for code that makes its own textures of it
+function loadPicture (texture, onLoad, onError) {
+  if (process.platform === 'browser') {
+    return require('./utils.web').loadImage(texture, onLoad, onError)
+  }
+  if (!loadImage) return onError(new Error('loading images needs node-canvas-webgl'))
+  loadImage(path.resolve(__dirname, '../../public/' + texture)).then(onLoad, onError)
+}
+
+module.exports = { loadTexture, loadPixels, loadJSON, loadImage: loadPicture }

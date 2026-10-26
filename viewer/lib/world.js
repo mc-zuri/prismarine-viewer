@@ -84,6 +84,12 @@ class World {
     }
     return block
   }
+
+  // the block entity at a position, as its NBT (a Bedrock column keeps them), or null
+  getBlockEntity (pos) {
+    const column = this.columns[columnKey(Math.floor(pos.x / 16) * 16, Math.floor(pos.z / 16) * 16)]
+    return column?.getBlockEntity?.(posInChunk(pos)) ?? null
+  }
 }
 
 module.exports = { World }

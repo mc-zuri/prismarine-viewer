@@ -413,9 +413,9 @@ function getSectionGeometry (sx, sy, sz, world, blocksStates) {
         if (block.variant === undefined) {
           block.variant = getModelVariants(block, blocksStates)
         }
-        const neighbourKind = keyedByNeighbours(block, blocksStates)
-        const variants = neighbourKind
-          ? getModelVariants(block, blocksStates, neighbourStates(world, cursor, block, neighbourKind))
+        const positionKind = keyedByPosition(block, blocksStates)
+        const variants = positionKind
+          ? getModelVariants(block, blocksStates, positionStates(world, cursor, block, positionKind))
           : block.variant
 
         for (const variant of variants) {
@@ -504,25 +504,32 @@ function parseProperties (properties) {
   return json
 }
 
-// Bedrock before 1.26.50 keeps no connection of a fence, pane or bars and no corner of a stair in its state: the client
-// works them out from the neighbours. Their blockstates are keyed by the states 1.26.50 has for them
-// (minecraft:connection_<side>, minecraft:corner), which a block whose state lacks them takes from its neighbours here.
+// Bedrock before 1.26.50 keeps no connection of a fence, pane or bars and no corner of a stair in its state, and no
+// version keeps a redstone dust's connections: the client works them out from the neighbours. Their blockstates are
+// keyed by the states 1.26.50 has for them (minecraft:connection_<side>, minecraft:corner; a dust's connections none,
+// side or up), which a block whose state lacks them takes from its neighbours here. A blockstate keyed by
+// block_entity.<tag> (a Bedrock bed's colour, a head's rotation) takes them from the block's block entity.
 const SIDES = { north: [0, -1], east: [1, 0], south: [0, 1], west: [-1, 0] }
 const OPPOSITE = { north: 'south', south: 'north', east: 'west', west: 'east' }
 const COUNTER_CLOCKWISE = { north: 'west', west: 'south', south: 'east', east: 'north' }
 const STAIR_FACING = ['east', 'west', 'south', 'north'] // by weirdo_direction
-const neighbourKeys = new WeakMap() // blockStates -> block name -> 'connection' | 'corner' | null
+const positionKeys = new WeakMap() // blockStates -> block name -> 'connection' | 'redstone' | 'corner' | 'block_entity' | null
 
-function keyedByNeighbours (block, blockStates) {
-  if (!neighbourKeys.has(blockStates)) neighbourKeys.set(blockStates, {})
-  const byName = neighbourKeys.get(blockStates)
+function keyedByPosition (block, blockStates) {
+  if (!positionKeys.has(blockStates)) positionKeys.set(blockStates, {})
+  const byName = positionKeys.get(blockStates)
   if (!(block.name in byName)) {
     const text = JSON.stringify(blockStates[block.name] ?? null)
-    byName[block.name] = text.includes('"minecraft:connection_') ? 'connection' : text.includes('minecraft:corner=') ? 'corner' : null
+    byName[block.name] = text.includes('block_entity.')
+      ? 'block_entity'
+      : text.includes('"minecraft:connection_')
+        ? (block.name === 'redstone_wire' ? 'redstone' : 'connection')
+        : text.includes('minecraft:corner=') ? 'corner' : null
   }
   const kind = byName[block.name]
   const props = block.getProperties()
-  if (kind === 'connection' && !('minecraft:connection_north' in props)) return kind
+  if (kind === 'block_entity') return kind
+  if ((kind === 'connection' || kind === 'redstone') && !('minecraft:connection_north' in props)) return kind
   if (kind === 'corner' && !('minecraft:corner' in props) && props.weirdo_direction !== undefined) return kind
   return null
 }
@@ -561,16 +568,57 @@ function stairCorner (world, cursor, block) {
   return 'none'
 }
 
-function neighbourStates (world, cursor, block, kind) {
-  if (kind === 'corner') return { 'minecraft:corner': stairCorner(world, cursor, block) }
+// the blocks redstone dust turns to: dust, and what gives or takes a signal (a repeater along its axis)
+const REDSTONE = /^(redstone_wire|(unlit_)?redstone_torch|redstone_block|lever|.*_button|.*pressure_plate|daylight_detector.*|target|trapped_chest|tripwire_hook|lectern|detector_rail|(un)?powered_comparator|.*sculk_sensor)$/
+const REPEATER_AXIS = ['z', 'x', 'z', 'x'] // by direction
+
+function takesRedstone (block, side) {
+  if (!block) return false
+  if (/^(un)?powered_repeater$/.test(block.name)) {
+    const props = block.getProperties()
+    const facing = props['minecraft:cardinal_direction']
+    const axis = facing ? (facing === 'north' || facing === 'south' ? 'z' : 'x') : REPEATER_AXIS[props.direction]
+    return axis === (side === 'north' || side === 'south' ? 'z' : 'x')
+  }
+  return REDSTONE.test(block.name)
+}
+
+// a dust's connection to a side: to what takes redstone there, to dust a step down there (the side not solid), or a
+// step up the block there (the block above the dust not solid)
+function dustConnection (world, cursor, side) {
+  const [dx, dz] = SIDES[side]
+  const next = world.getBlock(cursor.offset(dx, 0, dz))
+  if (takesRedstone(next, side)) return 'side'
+  const solid = block => !!block && !!block.isCube && !block.transparent
+  if (solid(next)) {
+    return !solid(world.getBlock(cursor.offset(0, 1, 0))) && world.getBlock(cursor.offset(dx, 1, dz))?.name === 'redstone_wire' ? 'up' : 'none'
+  }
+  return world.getBlock(cursor.offset(dx, -1, dz))?.name === 'redstone_wire' ? 'side' : 'none'
+}
+
+// the tags of a block's block entity, as block_entity.<tag>
+function blockEntityStates (world, cursor) {
   const out = {}
-  for (const [side, [dx, dz]] of Object.entries(SIDES)) {
-    out['minecraft:connection_' + side] = connects(block, world.getBlock(cursor.offset(dx, 0, dz))) ? '1' : '0'
+  const tag = world.getBlockEntity?.(cursor)
+  for (const [key, { value } = {}] of Object.entries(tag?.value ?? {})) {
+    if (typeof value === 'number' || typeof value === 'string') out['block_entity.' + key] = String(value)
   }
   return out
 }
 
-// extra: properties the block has at its position besides its state's (from its neighbours)
+function positionStates (world, cursor, block, kind) {
+  if (kind === 'block_entity') return blockEntityStates(world, cursor)
+  if (kind === 'corner') return { 'minecraft:corner': stairCorner(world, cursor, block) }
+  const out = {}
+  for (const [side, [dx, dz]] of Object.entries(SIDES)) {
+    out['minecraft:connection_' + side] = kind === 'redstone'
+      ? dustConnection(world, cursor, side)
+      : connects(block, world.getBlock(cursor.offset(dx, 0, dz))) ? '1' : '0'
+  }
+  return out
+}
+
+// extra: properties the block has at its position besides its state's (from its neighbours, its block entity)
 function matchProperties (block, properties, extra) {
   if (!properties) { return true }
 

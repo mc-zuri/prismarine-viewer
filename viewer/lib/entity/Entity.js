@@ -102,8 +102,9 @@ const faceSize = {
 
 // A cube's uv is a box's ([u, v]: its faces laid out around it on the sheet) or one per face ({ north: { uv, uv_size } },
 // a face it leaves out not drawn). A mirrored box's east and west faces trade places and every face's u runs the
-// other way. A cube's rotation turns it about its pivot (about the model's origin when it has none).
-function addCube (attr, boneId, bone, cube, texWidth = 64, texHeight = 64) {
+// other way. A cube's rotation turns it about its pivot (about the model's origin when it has none); rest is where its
+// bone's cubes rest (cubeTransform).
+function addCube (attr, boneId, rest, cube, texWidth = 64, texHeight = 64) {
   const cubeRotation = new THREE.Euler(0, 0, 0)
   if (cube.rotation) {
     cubeRotation.x = -cube.rotation[0] * Math.PI / 180
@@ -138,9 +139,7 @@ function addCube (attr, boneId, bone, cube, texWidth = 64, texHeight = 64) {
       )
 
       vecPos = cubePivot ? vecPos.sub(cubePivot).applyEuler(cubeRotation).add(cubePivot) : vecPos.applyEuler(cubeRotation)
-      vecPos = vecPos.sub(bone.position)
-      vecPos = vecPos.applyEuler(bone.rotation)
-      vecPos = vecPos.add(bone.position)
+      vecPos = vecPos.applyMatrix4(rest)
 
       attr.positions.push(vecPos.x, vecPos.y, vecPos.z)
       attr.normals.push(...dir)
@@ -213,6 +212,8 @@ function prepareSkin (texture) {
   return prepared
 }
 
+const euler = degrees => new THREE.Euler(...(degrees ?? [0, 0, 0]).map(d => -d * Math.PI / 180))
+
 // a bone at its rest pose: at its (absolute) pivot, turned by its rotation
 function restBone (jsonBone) {
   const bone = new THREE.Bone()
@@ -222,17 +223,39 @@ function restBone (jsonBone) {
     bone.position.y = jsonBone.pivot[1]
     bone.position.z = jsonBone.pivot[2]
   }
-  if (jsonBone.bind_pose_rotation) {
-    bone.rotation.x = -jsonBone.bind_pose_rotation[0] * Math.PI / 180
-    bone.rotation.y = -jsonBone.bind_pose_rotation[1] * Math.PI / 180
-    bone.rotation.z = -jsonBone.bind_pose_rotation[2] * Math.PI / 180
-  } else if (jsonBone.rotation) {
-    bone.rotation.x = -jsonBone.rotation[0] * Math.PI / 180
-    bone.rotation.y = -jsonBone.rotation[1] * Math.PI / 180
-    bone.rotation.z = -jsonBone.rotation[2] * Math.PI / 180
-  }
+  if (jsonBone.rotation) bone.rotation.copy(euler(jsonBone.rotation))
   return bone
 }
+
+// a turn by a rotation about a pivot
+function turnAbout (pivot, rotation) {
+  const [x, y, z] = pivot ?? [0, 0, 0]
+  return new THREE.Matrix4().makeTranslation(x, y, z)
+    .multiply(new THREE.Matrix4().makeRotationFromEuler(euler(rotation)))
+    .multiply(new THREE.Matrix4().makeTranslation(-x, -y, -z))
+}
+
+// Each bone's rest transform, by its name (lowercase): turned by its rotation about its pivot, after its parent's, as
+// Bedrock turns a bone with the bones it holds. (Its bind_pose_rotation turns its own cubes alone: cubeTransform.)
+function restTransforms (jsonModel) {
+  const byName = new Map(jsonModel.bones.map(jsonBone => [jsonBone.name.toLowerCase(), jsonBone]))
+  const out = new Map()
+  const of = jsonBone => {
+    const key = jsonBone.name.toLowerCase()
+    if (out.has(key)) return out.get(key)
+    out.set(key, new THREE.Matrix4()) // (a bone its own ancestor stays where it is)
+    const own = turnAbout(jsonBone.pivot, jsonBone.rotation)
+    const parent = jsonBone.parent && byName.get(jsonBone.parent.toLowerCase())
+    const rest = parent ? of(parent).clone().multiply(own) : own
+    out.set(key, rest)
+    return rest
+  }
+  for (const jsonBone of jsonModel.bones) of(jsonBone)
+  return out
+}
+
+// where a bone's cubes rest: its rest transform (rest), and its bind_pose_rotation about its pivot
+const cubeTransform = (rest, jsonBone) => jsonBone.bind_pose_rotation ? rest.clone().multiply(turnAbout(jsonBone.pivot, jsonBone.bind_pose_rotation)) : rest
 
 // a skin given as its pixels ({ width, height, data: RGBA, base64 or bytes }, as Bedrock sends a player's), or a URL
 function loadSkin (skin, cb) {
@@ -256,16 +279,21 @@ function getMesh (texture, jsonModel, override, shared = null) {
     skinIndices: [],
     skinWeights: []
   }
+  // (on shared bones, a cube rests where the bone of its bone's name does: armor on a posed arm)
   const sharedIndex = shared && new Map(shared.skeleton.bones.map((bone, i) => [bone.name.toLowerCase(), i]))
+  const rests = restTransforms(jsonModel)
   let i = 0
   for (const jsonBone of jsonModel.bones) {
     const bone = restBone(jsonBone)
+    bone.userData.rest = rests.get(jsonBone.name.toLowerCase())
     bones[jsonBone.name] = bone
 
     if (jsonBone.cubes) {
-      const boneId = shared ? sharedIndex.get(jsonBone.name.toLowerCase()) ?? 0 : i
+      const sharedId = shared ? sharedIndex.get(jsonBone.name.toLowerCase()) : undefined
+      const boneId = shared ? sharedId ?? 0 : i
+      const rest = cubeTransform((sharedId !== undefined && shared.skeleton.bones[sharedId].userData.rest) || bone.userData.rest, jsonBone)
       for (const cube of jsonBone.cubes) {
-        addCube(geoData, boneId, bone, cube, jsonModel.texturewidth, jsonModel.textureheight)
+        addCube(geoData, boneId, rest, cube, jsonModel.texturewidth, jsonModel.textureheight)
       }
     }
     i++

@@ -71,6 +71,12 @@ class Viewer {
     this.world.setBlockEntity(pos, tag)
   }
 
+  // the lid of the chest at pos opening (open) or shutting, as a block event says (Java's block action, Bedrock's
+  // block_event change_state: open while anyone has it open)
+  setLidOpen (pos, open) {
+    this.world.setLidOpen(pos, open)
+  }
+
   updateEntity (e) {
     this.entities.update(e)
   }
@@ -121,6 +127,10 @@ class Viewer {
 
     emitter.on('blockEntity', ({ pos, tag }) => {
       this.setBlockEntity(new Vec3(pos.x, pos.y, pos.z), tag)
+    })
+
+    emitter.on('lid', ({ pos, open }) => {
+      this.setLidOpen(pos, open)
     })
 
     this.domElement.addEventListener('pointerdown', (evt) => {

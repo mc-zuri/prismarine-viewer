@@ -461,6 +461,8 @@ function keyedByPosition (block, blockStates) {
   const kind = byName[block.name]
   const props = block.getProperties()
   if (kind === 'block_entity') return kind
+  // a Bedrock door: each half holds only some of the door's states
+  if (props.upper_block_bit !== undefined && /door$/.test(block.name)) return 'door'
   if ((kind === 'connection' || kind === 'redstone') && !('minecraft:connection_north' in props)) return kind
   if (kind === 'corner' && !('minecraft:corner' in props) && props.weirdo_direction !== undefined) return kind
   return null
@@ -528,18 +530,69 @@ function dustConnection (world, cursor, side) {
   return world.getBlock(cursor.offset(dx, -1, dz))?.name === 'redstone_wire' ? 'side' : 'none'
 }
 
-// the tags of a block's block entity, as block_entity.<tag>
-function blockEntityStates (world, cursor) {
+const CLOCKWISE = { north: 'east', east: 'south', south: 'west', west: 'north' }
+
+// the side a chest's other half is on, or null: a Bedrock chest's block entity names it (pairx, pairz); a Java
+// chest's type says it (left: clockwise of its facing, right: counter-clockwise); before the flattening (1.13), whose
+// chests have no type, a Java chest pairs with one of its kind beside it, across its facing
+function chestPair (world, cursor, block, tag) {
+  const pairx = tag?.value?.pairx?.value
+  const pairz = tag?.value?.pairz?.value
+  if (pairx !== undefined && pairz !== undefined) {
+    return Object.keys(SIDES).find(s => cursor.x + SIDES[s][0] === pairx && cursor.z + SIDES[s][1] === pairz) ?? null
+  }
+  const { facing, type } = block.getProperties()
+  if (!SIDES[facing]) return null
+  if (type === 'left') return CLOCKWISE[facing]
+  if (type === 'right') return COUNTER_CLOCKWISE[facing]
+  if (world.preFlattening && /chest$/.test(block.name) && block.name !== 'ender_chest') {
+    for (const side of [CLOCKWISE[facing], COUNTER_CLOCKWISE[facing]]) {
+      if (world.getBlock(cursor.offset(SIDES[side][0], 0, SIDES[side][1]))?.name === block.name) return side
+    }
+  }
+  return null
+}
+
+// The tags of a block's block entity, as block_entity.<tag>; and two the client works out for a chest:
+// block_entity.pair, the side its other half is on (none when single: chestPair), and block_entity.lid, how far its
+// lid is open (0 shut; the viewer animates it: world.setLid), the further open of its own and its other half's
+function blockEntityStates (world, cursor, block) {
   const out = {}
   const tag = world.getBlockEntity?.(cursor)
   for (const [key, { value } = {}] of Object.entries(tag?.value ?? {})) {
     if (typeof value === 'number' || typeof value === 'string') out['block_entity.' + key] = String(value)
   }
+  const pair = chestPair(world, cursor, block, tag)
+  out['block_entity.pair'] = pair ?? 'none'
+  const lid = world.getLid?.(cursor) ?? 0
+  out['block_entity.lid'] = String(pair ? Math.max(lid, world.getLid?.(cursor.offset(SIDES[pair][0], 0, SIDES[pair][1])) ?? 0) : lid)
   return out
 }
 
+// A Bedrock door half's states from the other half, as the client draws a door: the lower half holds its direction and
+// openness, the upper half its hinge. Before 1.2 (0.14 - 1.0) the upper half's hinge is the low bit of its data, which
+// its states read as its direction.
+function doorStates (world, cursor, block) {
+  const own = block.getProperties()
+  const upper = String(own.upper_block_bit)
+  const isUpper = upper === '1' || upper === 'true'
+  const hingeOf = props => world.legacyDoors ? String(+props.direction & 1) : props.door_hinge_bit
+  const other = world.getBlock(cursor.offset(0, isUpper ? -1 : 1, 0))
+  if (!other || other.name !== block.name) return isUpper && world.legacyDoors ? { door_hinge_bit: hingeOf(own) } : {}
+  const props = other.getProperties()
+  if (String(props.upper_block_bit) === upper) return {}
+  if (isUpper) {
+    const out = { open_bit: props.open_bit }
+    for (const key of ['direction', 'minecraft:cardinal_direction']) if (props[key] !== undefined) out[key] = props[key]
+    if (world.legacyDoors) out.door_hinge_bit = hingeOf(own)
+    return out
+  }
+  return { door_hinge_bit: hingeOf(props) }
+}
+
 function positionStates (world, cursor, block, kind) {
-  if (kind === 'block_entity') return blockEntityStates(world, cursor)
+  if (kind === 'block_entity') return blockEntityStates(world, cursor, block)
+  if (kind === 'door') return doorStates(world, cursor, block)
   if (kind === 'corner') return { 'minecraft:corner': stairCorner(world, cursor, block) }
   const out = {}
   for (const [side, [dx, dz]] of Object.entries(SIDES)) {

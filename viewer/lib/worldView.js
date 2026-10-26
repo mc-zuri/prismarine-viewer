@@ -175,6 +175,18 @@ function bedrockLiquidUpdates (bot, emit) {
   }
 }
 
+// a chest's (an ender chest's, a shulker box's) lid opening or shutting: Bedrock's block_event change_state, its data
+// how many have it open
+function bedrockBlockEvents (bot, emit) {
+  return {
+    block_event: packet => {
+      if (!packet.position || (packet.type !== 'change_state' && packet.type !== 1)) return
+      const { x, y, z } = packet.position
+      emit({ pos: { x, y: signedCoordinate(y), z }, open: packet.data > 0 })
+    }
+  }
+}
+
 class WorldView extends EventEmitter {
   constructor (world, viewDistance, position = new Vec3(0, 0, 0), emitter = null) {
     super()
@@ -281,6 +293,10 @@ class WorldView extends EventEmitter {
         // (state 0 is a block like any other: a Bedrock world's first state is cyan terracotta)
         const stateId = newBlock.stateId ?? ((newBlock.type << 4) | newBlock.metadata)
         worldView.emitter.emit('blockUpdate', { pos: oldBlock.position, stateId })
+      },
+      // a chest's lid opening or shutting (a block action: how many have it open), and its other half's
+      chestLidMove: function (block, viewers, block2) {
+        for (const b of [block, block2]) if (b?.position) worldView.emitter.emit('lid', { pos: b.position, open: viewers > 0 })
       }
     }
     if (bedrock) {
@@ -325,7 +341,8 @@ class WorldView extends EventEmitter {
       this.packetListeners[bot.username] = {
         ...bedrockLiquidUpdates(bot, update => worldView.emitter.emit('blockUpdate', update)),
         ...bedrockEntityEvents(bot, entity => worldView.emitter.emit('entity', entity)),
-        ...bedrockParticles(bot, tracker, particle => worldView.emitter.emit('particle', particle))
+        ...bedrockParticles(bot, tracker, particle => worldView.emitter.emit('particle', particle)),
+        ...bedrockBlockEvents(bot, lid => worldView.emitter.emit('lid', lid))
       }
       for (const [name, listener] of Object.entries(this.packetListeners[bot.username])) {
         bot._client.on(name, listener)

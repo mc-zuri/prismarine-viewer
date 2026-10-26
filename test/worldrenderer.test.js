@@ -109,3 +109,30 @@ describe('WorldRenderer with a delayed world bounds load', () => {
     expect(Math.max(...ys)).toBe(304)
   })
 })
+
+describe('chest lids', () => {
+  const lidSteps = renderer => renderer.workers[0].messages.filter(m => m.type === 'lid').map(m => m.step)
+
+  test('a lid opens in steps over half a second, eased, each step told to the workers and its section dirtied', () => {
+    const renderer = new WorldRenderer(new THREE.Scene(), 1)
+    renderer.setLidOpen({ x: 1.5, y: 64, z: 2 }, true)
+    for (let i = 0; i < 12; i++) renderer.updateLids(0.05)
+    const steps = lidSteps(renderer)
+    expect(steps[steps.length - 1]).toBe(9)
+    // (eased: quick at first, slow at the end)
+    expect(steps[0]).toBeGreaterThanOrEqual(2)
+    expect([...steps].sort((a, b) => a - b)).toEqual(steps)
+    expect(renderer.workers[0].messages.find(m => m.type === 'lid').pos).toEqual({ x: 1, y: 64, z: 2 })
+    expect(renderer.workers[0].messages.some(m => m.type === 'dirty' && m.y === 64)).toBe(true)
+  })
+
+  test('it shuts back to 0, and is forgotten once shut', () => {
+    const renderer = new WorldRenderer(new THREE.Scene(), 1)
+    renderer.setLidOpen({ x: 0, y: 0, z: 0 }, true)
+    for (let i = 0; i < 12; i++) renderer.updateLids(0.05)
+    renderer.setLidOpen({ x: 0, y: 0, z: 0 }, false)
+    for (let i = 0; i < 12; i++) renderer.updateLids(0.05)
+    expect(lidSteps(renderer).pop()).toBe(0)
+    expect(renderer.lids.size).toBe(0)
+  })
+})

@@ -23,6 +23,13 @@ class World {
     this.Chunk = Chunks(version)
     this.columns = {}
     this.blockCache = {}
+    // how far each chest's lid is open, by position (models.js: block_entity.lid)
+    this.lids = new Map()
+    // a Java version before 1.13, whose chests pair by their neighbours; a Bedrock version before 1.2 (0.14 - 1.0),
+    // whose doors keep their hinge in their upper half's data (models.js)
+    const bedrock = String(version).startsWith('bedrock_')
+    this.preFlattening = !bedrock && !mcData(version).supportFeature('theFlattening')
+    this.legacyDoors = bedrock && !mcData(version).blockStates
     this.biomeCache = mcData(version).biomes
     // 0 before 1.18, -64 after — used by models.js to cull out-of-world faces
     this.minY = new this.Chunk({}).minY ?? 0
@@ -102,6 +109,17 @@ class World {
   getBlockEntity (pos) {
     const column = this.columns[columnKey(Math.floor(pos.x / 16) * 16, Math.floor(pos.z / 16) * 16)]
     return column?.getBlockEntity?.(posInChunk(pos)) ?? null
+  }
+
+  // how far the lid of the chest at a position is open: a step from 0 (shut) on
+  setLid (pos, step) {
+    const key = `${pos.x},${pos.y},${pos.z}`
+    if (step) this.lids.set(key, step)
+    else this.lids.delete(key)
+  }
+
+  getLid (pos) {
+    return this.lids.get(`${pos.x},${pos.y},${pos.z}`) ?? 0
   }
 }
 

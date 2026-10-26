@@ -59,6 +59,13 @@ Updates an entity
 
 A Bedrock version draws its entities with its own client entities, animated as the game animates them (`viewer/lib/bedrock`).
 
+#### setLidOpen (pos, open)
+
+Opens (open: true) or shuts the lid of the chest at pos, as a block event says (Java's block action, Bedrock's
+block_event `change_state`: open while anyone has it open). The lid moves as the game moves it, over half a second; a
+double chest's halves open together. A chest is drawn single or as its half of a double chest: a Java chest by its
+`type` (before 1.13, by a chest of its kind beside it), a Bedrock chest by its block entity's `pairx` and `pairz`.
+
 #### spawnParticle (name, position, options)
 
 Spawns a particle effect of a Bedrock version's packs
@@ -92,6 +99,7 @@ the emitter should emit these events:
 * blockUpdate({pos, stateId, layer}) ; update a block (layer 1: Bedrock's water a block stands in)
 * blockEntity({pos, tag}) ; a block entity's NBT changed (Bedrock: a bed's colour)
 * particle({name, pos, variables}) ; spawns a particle effect
+* lid({pos, open}) ; a chest's lid opens or shuts (setLidOpen)
 it also listen to these events:
 * mouseClick({ origin, direction, button })
 

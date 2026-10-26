@@ -9,6 +9,11 @@ function mod (x, n) {
   return ((x % n) + n) % n
 }
 
+// a chest's lid: its steps from shut (0) to open, as the models draw them (block_entity.lid), and the time it takes
+// to open or shut (10 ticks)
+const LID_STEPS = 9
+const LID_SECONDS = 0.5
+
 class WorldRenderer {
   constructor (scene, numWorkers = 4) {
     this.sectionMeshs = {}
@@ -26,6 +31,9 @@ class WorldRenderer {
     this.renderUpdateEmitter = new EventEmitter()
     this.blockStatesData = undefined
     this.texturesDataUrl = undefined
+    // the lids opening or shutting, by position: { pos, open, openness (0..1), step }
+    this.lids = new Map()
+    this.lastUpdate = null
 
     this.material = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, alphaTest: 0.1 })
     // Animated textures are packed as vertical runs of frames; each vertex
@@ -84,6 +92,7 @@ class WorldRenderer {
 
   resetWorld () {
     this.active = false
+    this.lids.clear()
     for (const mesh of Object.values(this.sectionMeshs)) {
       this.scene.remove(mesh)
     }
@@ -144,7 +153,34 @@ class WorldRenderer {
   }
 
   update () {
-    this.uniforms.time.value = performance.now() / 50
+    const now = performance.now()
+    this.uniforms.time.value = now / 50
+    const dt = this.lastUpdate === null ? 0 : Math.min(0.25, (now - this.lastUpdate) / 1000)
+    this.lastUpdate = now
+    this.updateLids(dt)
+  }
+
+  // a chest's lid opening (open) or shutting at pos, as the game moves it: its openness eased (1 - (1 - t)^3) to the
+  // models' steps, each step the block drawn again
+  setLidOpen (pos, open) {
+    pos = new Vec3(pos.x, pos.y, pos.z).floored()
+    const key = `${pos.x},${pos.y},${pos.z}`
+    const lid = this.lids.get(key) ?? { pos, openness: 0, step: 0 }
+    lid.open = open
+    this.lids.set(key, lid)
+  }
+
+  updateLids (dt) {
+    for (const [key, lid] of this.lids) {
+      lid.openness = Math.min(1, Math.max(0, lid.openness + (lid.open ? dt : -dt) / LID_SECONDS))
+      const step = Math.round((1 - (1 - lid.openness) ** 3) * LID_STEPS)
+      if (step !== lid.step) {
+        lid.step = step
+        for (const worker of this.workers) worker.postMessage({ type: 'lid', pos: lid.pos, step })
+        this.setBlockDirty(lid.pos)
+      }
+      if (!lid.open && lid.openness === 0) this.lids.delete(key)
+    }
   }
 
   addColumn (x, z, chunk) {

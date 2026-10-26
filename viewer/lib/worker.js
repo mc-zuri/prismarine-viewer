@@ -57,6 +57,8 @@ self.onmessage = ({ data }) => {
   } else if (data.type === 'blockEntity') {
     const loc = new Vec3(data.pos.x, data.pos.y, data.pos.z).floored()
     world.setBlockEntity(loc, data.tag)
+  } else if (data.type === 'lid') {
+    world.setLid(new Vec3(data.pos.x, data.pos.y, data.pos.z).floored(), data.step)
   } else if (data.type === 'reset') {
     world = null
     blocksStates = null

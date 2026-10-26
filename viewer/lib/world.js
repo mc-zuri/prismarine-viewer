@@ -54,7 +54,7 @@ class World {
     return true
   }
 
-  getBlock (pos) {
+  getBlock (pos, layer = 0) {
     const key = columnKey(Math.floor(pos.x / 16) * 16, Math.floor(pos.z / 16) * 16)
 
     const column = this.columns[key]
@@ -63,6 +63,9 @@ class World {
 
     const loc = pos.floored()
     const locInChunk = posInChunk(loc)
+    // layer 1: Bedrock keeps the water a block stands in (seagrass, a waterlogged stair) in a second layer of its sub
+    // chunk; a column of one layer gives its block
+    if (layer) locInChunk.l = layer
     const stateId = column.getBlockStateId(locInChunk)
 
     if (!this.blockCache[stateId]) {

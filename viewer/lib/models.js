@@ -106,10 +106,18 @@ function liquidOf (block) {
   return null
 }
 
+// the liquid at a position: its block, or the water a Bedrock block stands in (its second layer); else its block
+function liquidAt (world, pos) {
+  const block = world.getBlock(pos)
+  if (!block || liquidOf(block)) return block
+  const layer = world.getBlock(pos, 1)
+  return liquidOf(layer) ? layer : world.getBlock(pos)
+}
+
 function getLiquidRenderHeight (world, block, type) {
   if (liquidOf(block) !== type) return 1 / 9
   if (block.metadata === 0) { // source block
-    const blockAbove = world.getBlock(block.position.offset(0, 1, 0))
+    const blockAbove = liquidAt(world, block.position.offset(0, 1, 0))
     if (liquidOf(blockAbove) === type) return 1
     return 8 / 9
   }
@@ -120,7 +128,7 @@ function renderLiquid (world, cursor, texture, type, biome, water, attr) {
   const heights = []
   for (let z = -1; z <= 1; z++) {
     for (let x = -1; x <= 1; x++) {
-      heights.push(getLiquidRenderHeight(world, world.getBlock(cursor.offset(x, 0, z)), type))
+      heights.push(getLiquidRenderHeight(world, liquidAt(world, cursor.offset(x, 0, z)), type))
     }
   }
   const cornerHeights = [
@@ -134,9 +142,9 @@ function renderLiquid (world, cursor, texture, type, biome, water, attr) {
     const { dir, corners } = elemFaces[face]
     const isUp = dir[1] === 1
 
+    if (liquidOf(liquidAt(world, cursor.offset(...dir))) === type) continue
     const neighbor = world.getBlock(cursor.offset(...dir))
     if (!neighbor) continue
-    if (liquidOf(neighbor) === type) continue
     if ((neighbor.isCube && !isUp) || neighbor.material === 'plant' || neighbor.getProperties().waterlogged) continue
     if (neighbor.position.y < (world.minY ?? 0)) continue
 
@@ -405,8 +413,12 @@ function getSectionGeometry (sx, sy, sz, world, blocksStates) {
         if (block.variant === undefined) {
           block.variant = getModelVariants(block, blocksStates)
         }
+        const neighbourKind = keyedByNeighbours(block, blocksStates)
+        const variants = neighbourKind
+          ? getModelVariants(block, blocksStates, neighbourStates(world, cursor, block, neighbourKind))
+          : block.variant
 
-        for (const variant of block.variant) {
+        for (const variant of variants) {
           if (!variant || !variant.model) continue
 
           const liquid = liquidOf(block)
@@ -431,6 +443,17 @@ function getSectionGeometry (sx, sy, sz, world, blocksStates) {
             for (const element of variant.model.elements) {
               renderElement(world, cursor, element, variant.model.ao, attr, globalMatrix, globalShift, block, biome)
             }
+          }
+        }
+
+        // the water a Bedrock block stands in (seagrass, kelp, a waterlogged stair), in its second layer
+        if (!liquidOf(block)) {
+          const layer = world.getBlock(cursor, 1)
+          const liquid = liquidOf(layer)
+          if (liquid) {
+            if (layer.variant === undefined) layer.variant = getModelVariants(layer, blocksStates)
+            const model = layer.variant[0]?.model
+            if (model) renderLiquid(world, cursor, model.textures.particle, liquid, biome, liquid === 'water', attr)
           }
         }
       }
@@ -481,13 +504,80 @@ function parseProperties (properties) {
   return json
 }
 
-function matchProperties (block, properties) {
+// Bedrock before 1.26.50 keeps no connection of a fence, pane or bars and no corner of a stair in its state: the client
+// works them out from the neighbours. Their blockstates are keyed by the states 1.26.50 has for them
+// (minecraft:connection_<side>, minecraft:corner), which a block whose state lacks them takes from its neighbours here.
+const SIDES = { north: [0, -1], east: [1, 0], south: [0, 1], west: [-1, 0] }
+const OPPOSITE = { north: 'south', south: 'north', east: 'west', west: 'east' }
+const COUNTER_CLOCKWISE = { north: 'west', west: 'south', south: 'east', east: 'north' }
+const STAIR_FACING = ['east', 'west', 'south', 'north'] // by weirdo_direction
+const neighbourKeys = new WeakMap() // blockStates -> block name -> 'connection' | 'corner' | null
+
+function keyedByNeighbours (block, blockStates) {
+  if (!neighbourKeys.has(blockStates)) neighbourKeys.set(blockStates, {})
+  const byName = neighbourKeys.get(blockStates)
+  if (!(block.name in byName)) {
+    const text = JSON.stringify(blockStates[block.name] ?? null)
+    byName[block.name] = text.includes('"minecraft:connection_') ? 'connection' : text.includes('minecraft:corner=') ? 'corner' : null
+  }
+  const kind = byName[block.name]
+  const props = block.getProperties()
+  if (kind === 'connection' && !('minecraft:connection_north' in props)) return kind
+  if (kind === 'corner' && !('minecraft:corner' in props) && props.weirdo_direction !== undefined) return kind
+  return null
+}
+
+const kindOf = name => /fence_gate$/.test(name) ? 'gate' : /fence$/.test(name) ? 'fence' : /(pane|bars)$/.test(name) ? 'pane' : /wall$/.test(name) ? 'wall' : null
+
+// whether a fence, pane or bars connects to a neighbour: one of its own kind, a fence to a fence gate, a pane to glass
+// and walls, any of them to a solid block
+function connects (block, other) {
+  if (!other) return false
+  const kind = kindOf(block.name)
+  const otherKind = kindOf(other.name)
+  if (kind === 'fence' && otherKind === 'fence') return (block.name === 'nether_brick_fence') === (other.name === 'nether_brick_fence')
+  if (kind === 'fence' && otherKind === 'gate') return true
+  if (kind === 'pane' && (otherKind === 'pane' || otherKind === 'wall' || /glass$/.test(other.name))) return true
+  return !!other.isCube && !other.transparent
+}
+
+function stairOf (block) {
+  if (!block || !/stairs$/.test(block.name)) return null
+  const props = block.getProperties()
+  return props.weirdo_direction === undefined ? null : { facing: STAIR_FACING[props.weirdo_direction], half: props.upside_down_bit }
+}
+
+// a stair's corner: outer where the stair in front of it turns across it, inner where the one behind it does
+function stairCorner (world, cursor, block) {
+  const stair = stairOf(block)
+  const at = side => stairOf(world.getBlock(cursor.offset(SIDES[side][0], 0, SIDES[side][1])))
+  const axis = side => side === 'north' || side === 'south' ? 'z' : 'x'
+  const same = other => other && other.facing === stair.facing && other.half === stair.half
+  const across = other => other && other.half === stair.half && axis(other.facing) !== axis(stair.facing)
+  const front = at(stair.facing)
+  if (across(front) && !same(at(OPPOSITE[front.facing]))) return front.facing === COUNTER_CLOCKWISE[stair.facing] ? 'outer_left' : 'outer_right'
+  const back = at(OPPOSITE[stair.facing])
+  if (across(back) && !same(at(back.facing))) return back.facing === COUNTER_CLOCKWISE[stair.facing] ? 'inner_left' : 'inner_right'
+  return 'none'
+}
+
+function neighbourStates (world, cursor, block, kind) {
+  if (kind === 'corner') return { 'minecraft:corner': stairCorner(world, cursor, block) }
+  const out = {}
+  for (const [side, [dx, dz]] of Object.entries(SIDES)) {
+    out['minecraft:connection_' + side] = connects(block, world.getBlock(cursor.offset(dx, 0, dz))) ? '1' : '0'
+  }
+  return out
+}
+
+// extra: properties the block has at its position besides its state's (from its neighbours)
+function matchProperties (block, properties, extra) {
   if (!properties) { return true }
 
   properties = parseProperties(properties)
-  const blockProps = block.getProperties()
+  const blockProps = extra ? { ...block.getProperties(), ...extra } : block.getProperties()
   if (properties.OR) {
-    return properties.OR.some((or) => matchProperties(block, or))
+    return properties.OR.some((or) => matchProperties(block, or, extra))
   }
   for (const prop in blockProps) {
     if (typeof properties[prop] === 'string' && !properties[prop].split('|').some((value) => value === blockProps[prop] + '')) {
@@ -497,20 +587,20 @@ function matchProperties (block, properties) {
   return true
 }
 
-function getModelVariants (block, blockStates) {
+function getModelVariants (block, blockStates, extra) {
   // the air blocks render nothing. Enumerate them - a substring/suffix test also matches e.g. "*_stairs".
   if (block.name === 'air' || block.name === 'cave_air' || block.name === 'void_air') return []
   const state = blockStates[block.name] ?? blockStates.missing_texture
   if (!state) return []
   if (state.variants) {
     for (const [properties, variant] of Object.entries(state.variants)) {
-      if (!matchProperties(block, properties)) continue
+      if (!matchProperties(block, properties, extra)) continue
       if (variant instanceof Array) return [variant[0]]
       return [variant]
     }
   }
   if (state.multipart) {
-    const parts = state.multipart.filter(multipart => matchProperties(block, multipart.when))
+    const parts = state.multipart.filter(multipart => matchProperties(block, multipart.when, extra))
     let variants = []
     for (const part of parts) {
       if (part.apply instanceof Array) {

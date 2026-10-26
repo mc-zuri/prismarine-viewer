@@ -25,7 +25,7 @@ class World {
     this.blockCache = {}
     this.biomeCache = mcData(version).biomes
     // 0 before 1.18, -64 after — used by models.js to cull out-of-world faces
-    this.minY = new this.Chunk().minY ?? 0
+    this.minY = new this.Chunk({}).minY ?? 0
   }
 
   addColumn (x, z, json) {
@@ -73,7 +73,9 @@ class World {
 
     const block = this.blockCache[stateId]
     block.position = loc
-    block.biome = this.biomeCache[column.getBiome(locInChunk)]
+    // a Bedrock column gives the biome itself, a Java one its id
+    const biome = column.getBiome(locInChunk)
+    block.biome = this.biomeCache[typeof biome === 'object' ? biome.id : biome]
     if (block.biome === undefined) {
       block.biome = this.biomeCache[1]
     }

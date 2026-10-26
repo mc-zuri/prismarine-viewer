@@ -98,11 +98,19 @@ const elemFaces = {
   }
 }
 
+// Bedrock has a block for flowing water and lava besides the still one; both are the same liquid
+function liquidOf (block) {
+  if (!block) return null
+  if (block.name === 'water' || block.name === 'flowing_water') return 'water'
+  if (block.name === 'lava' || block.name === 'flowing_lava') return 'lava'
+  return null
+}
+
 function getLiquidRenderHeight (world, block, type) {
-  if (!block || block.type !== type) return 1 / 9
+  if (liquidOf(block) !== type) return 1 / 9
   if (block.metadata === 0) { // source block
     const blockAbove = world.getBlock(block.position.offset(0, 1, 0))
-    if (blockAbove && blockAbove.type === type) return 1
+    if (liquidOf(blockAbove) === type) return 1
     return 8 / 9
   }
   return ((block.metadata >= 8 ? 8 : 7 - block.metadata) + 1) / 9
@@ -128,7 +136,7 @@ function renderLiquid (world, cursor, texture, type, biome, water, attr) {
 
     const neighbor = world.getBlock(cursor.offset(...dir))
     if (!neighbor) continue
-    if (neighbor.type === type) continue
+    if (liquidOf(neighbor) === type) continue
     if ((neighbor.isCube && !isUp) || neighbor.material === 'plant' || neighbor.getProperties().waterlogged) continue
     if (neighbor.position.y < (world.minY ?? 0)) continue
 
@@ -395,10 +403,9 @@ function getSectionGeometry (sx, sy, sz, world, blocksStates) {
         for (const variant of block.variant) {
           if (!variant || !variant.model) continue
 
-          if (block.name === 'water') {
-            renderLiquid(world, cursor, variant.model.textures.particle, block.type, biome, true, attr)
-          } else if (block.name === 'lava') {
-            renderLiquid(world, cursor, variant.model.textures.particle, block.type, biome, false, attr)
+          const liquid = liquidOf(block)
+          if (liquid) {
+            renderLiquid(world, cursor, variant.model.textures.particle, liquid, biome, liquid === 'water', attr)
           } else {
             let globalMatrix = null
             let globalShift = null

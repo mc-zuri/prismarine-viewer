@@ -15,6 +15,8 @@ Web based viewer for servers and bots
 
 Supports versions 1.8.8, 1.9.4, 1.10.2, 1.11.2, 1.12.2, 1.13.2, 1.14.4, 1.15.2, 1.16.1, 1.16.4, 1.17.1, 1.18.1, 1.19, 1.20.1, 1.21.1, 1.21.4. Other versions of the same major (e.g. 1.21.8) render with the textures and models of the closest supported one.
 
+Bedrock Edition is supported from 0.14 to 1.26.51, every version minecraft-data has: pass a version such as `bedrock_1.21.0` and Bedrock chunks (prismarine-chunk). Bedrock blocks are drawn from Bedrock's own assets, which minecraft-assets has in the format of its Java versions (`data/bedrock/<version>`, made by [minecraft-bedrock-extractor](https://github.com/PrismarineJS/minecraft-bedrock-extractor)); a Bedrock version without assets of its own renders with those of the newest version before it (e.g. 1.21.2 with 1.21.0's). See [examples/bedrock.js](examples/bedrock.js).
+
 ## Install
 
 ```bash

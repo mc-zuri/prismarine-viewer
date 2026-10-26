@@ -1,6 +1,7 @@
 /* eslint-env jest */
 // What a block takes from its position besides its state, as models.js works it out: a chest's other half and its lid
-// (block_entity.pair, block_entity.lid), a Bedrock door half's states from the other half.
+// (block_entity.pair, block_entity.lid), a Bedrock door half's states from the other half, a piston's arm
+// (block_entity.Progress).
 const { Vec3 } = require('vec3')
 const { getSectionGeometry } = require('../viewer/lib/models')
 
@@ -107,5 +108,17 @@ describe('a 0.14 - 1.0 door', () => {
     const w = { ...world({ '1,0,0': lower, '1,1,0': upper }), legacyDoors: true }
     expect(picked(w, 1, states)).toBe(keys.indexOf('direction=2,door_hinge_bit=1,open_bit=0,upper_block_bit=0'))
     expect(picked(w, 1, states, 1)).toBe(keys.indexOf('direction=2,door_hinge_bit=1,open_bit=0,upper_block_bit=1'))
+  })
+})
+
+describe('a Bedrock piston', () => {
+  test('its arm is out as far as its PistonArm block entity\'s progress says, in by default', () => {
+    const keys = ['0', '0.5', '1'].map(p => `facing_direction=1,block_entity.Progress=${p}`)
+    const states = { piston: indexedVariants(keys) }
+    const piston = { name: 'piston', props: { facing_direction: 1 } }
+    const arm = progress => ({ type: 'compound', name: '', value: { id: { type: 'string', value: 'PistonArm' }, Progress: { type: 'float', value: progress }, State: { type: 'byte', value: 1 } } })
+    expect(picked(world({ '1,0,0': piston }), 1, states)).toBe(0)
+    expect(picked(world({ '1,0,0': piston }, { entities: { '1,0,0': arm(0.5) } }), 1, states)).toBe(1)
+    expect(picked(world({ '1,0,0': piston }, { entities: { '1,0,0': arm(1) } }), 1, states)).toBe(2)
   })
 })

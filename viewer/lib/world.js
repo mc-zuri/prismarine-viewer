@@ -28,6 +28,7 @@ class World {
     // a Java version before 1.13, whose chests pair by their neighbours; a Bedrock version before 1.2 (0.14 - 1.0),
     // whose doors keep their hinge in their upper half's data (models.js)
     const bedrock = String(version).startsWith('bedrock_')
+    this.bedrock = bedrock
     this.preFlattening = !bedrock && !mcData(version).supportFeature('theFlattening')
     this.legacyDoors = bedrock && !mcData(version).blockStates
     this.biomeCache = mcData(version).biomes

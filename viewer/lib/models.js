@@ -3,11 +3,17 @@ const { elemFaces } = require('./elemFaces')
 
 const tints = require('minecraft-data')('1.16.2').tints
 
-for (const key of Object.keys(tints)) {
-  tints[key] = prepareTints(tints[key])
+// the grass and leaves of the biomes newer than 1.16.2 (by their Java tints)
+const NEWER_TINTS = {
+  grass: { cherry_grove: 0xB6DB61, pale_garden: 0x778272, meadow: 0x83BB6D },
+  foliage: { cherry_grove: 0xB6DB61, pale_garden: 0x878D76, meadow: 0x63A948, mangrove_swamp: 0x8DB127 }
 }
 
-function prepareTints (tints) {
+for (const key of Object.keys(tints)) {
+  tints[key] = prepareTints(tints[key], NEWER_TINTS[key])
+}
+
+function prepareTints (tints, newer = {}) {
   const map = new Map()
   const defaultValue = tintToGl(tints.default)
   for (let { keys, color } of tints.data) {
@@ -16,11 +22,82 @@ function prepareTints (tints) {
       map.set(`${key}`, color)
     }
   }
+  for (const [key, color] of Object.entries(newer)) map.set(key, tintToGl(color))
   return new Proxy(map, {
     get: (target, key) => {
       return target.has(key) ? target.get(key) : defaultValue
     }
   })
+}
+
+// Bedrock's biomes by the names of the Java biomes they are, whose 1.16.2 tints colour their grass and leaves (the
+// mountains' and caves' newer than 1.16.2 by the 1.16.2 biome of their climate)
+const BEDROCK_BIOMES = {
+  swampland: 'swamp',
+  swampland_mutated: 'swamp_hills',
+  mesa: 'badlands',
+  mesa_plateau: 'badlands_plateau',
+  mesa_plateau_stone: 'wooded_badlands_plateau',
+  mesa_bryce: 'eroded_badlands',
+  mesa_plateau_mutated: 'modified_badlands_plateau',
+  mesa_plateau_stone_mutated: 'modified_wooded_badlands_plateau',
+  ice_plains: 'snowy_tundra',
+  ice_plains_spikes: 'ice_spikes',
+  ice_mountains: 'snowy_mountains',
+  cold_taiga: 'snowy_taiga',
+  cold_taiga_hills: 'snowy_taiga_hills',
+  cold_taiga_mutated: 'snowy_taiga_mountains',
+  cold_beach: 'snowy_beach',
+  roofed_forest: 'dark_forest',
+  roofed_forest_mutated: 'dark_forest_hills',
+  mega_taiga: 'giant_tree_taiga',
+  mega_taiga_hills: 'giant_tree_taiga_hills',
+  redwood_taiga_mutated: 'giant_spruce_taiga',
+  redwood_taiga_hills_mutated: 'giant_spruce_taiga_hills',
+  extreme_hills: 'mountains',
+  extreme_hills_edge: 'mountain_edge',
+  extreme_hills_plus_trees: 'wooded_mountains',
+  extreme_hills_mutated: 'gravelly_mountains',
+  extreme_hills_plus_trees_mutated: 'modified_gravelly_mountains',
+  mushroom_island: 'mushroom_fields',
+  mushroom_island_shore: 'mushroom_field_shore',
+  stone_beach: 'stone_shore',
+  forest_hills: 'wooded_hills',
+  legacy_frozen_ocean: 'frozen_ocean',
+  jungle_mutated: 'modified_jungle',
+  jungle_edge_mutated: 'modified_jungle_edge',
+  birch_forest_mutated: 'tall_birch_forest',
+  birch_forest_hills_mutated: 'tall_birch_hills',
+  taiga_mutated: 'taiga_mountains',
+  savanna_mutated: 'shattered_savanna',
+  savanna_plateau_mutated: 'shattered_savanna_plateau',
+  desert_mutated: 'desert_lakes',
+  hell: 'nether_wastes',
+  soulsand_valley: 'soul_sand_valley',
+  grove: 'snowy_tundra',
+  snowy_slopes: 'snowy_tundra',
+  frozen_peaks: 'snowy_tundra',
+  jagged_peaks: 'snowy_tundra',
+  stony_peaks: 'savanna',
+  lush_caves: 'forest',
+  dripstone_caves: 'plains',
+  deep_dark: 'plains',
+  mangrove_swamp: 'swamp',
+  dappled_forest: 'forest'
+}
+
+// the name a block's biome tints it by: a Bedrock biome's Java one (a mangrove swamp's leaves its own, its grass a
+// swamp's)
+function tintBiome (world, biome, key) {
+  if (!world.bedrock || NEWER_TINTS[key]?.[biome.name] !== undefined) return biome.name
+  return BEDROCK_BIOMES[biome.name] ?? biome.name
+}
+
+// a biome's water: a Bedrock biome's own colour (its water surface colour, minecraft-data's color), a Java biome's
+// 1.16.2 tint
+function waterTint (world, biome) {
+  if (world.bedrock && typeof biome.color === 'number') return tintToGl(biome.color)
+  return tints.water[tintBiome(world, biome, 'water')]
 }
 
 function tintToGl (tint) {
@@ -85,7 +162,7 @@ function renderLiquid (world, cursor, texture, type, biome, water, attr) {
       let m = 1 // Fake lighting to improve lisibility
       if (Math.abs(dir[0]) > 0) m = 0.6
       else if (Math.abs(dir[2]) > 0) m = 0.8
-      tint = tints.water[biome]
+      tint = waterTint(world, biome)
       tint = [tint[0] * m, tint[1] * m, tint[2] * m]
     }
 
@@ -223,9 +300,9 @@ function renderElement (world, cursor, element, doAO, attr, globalMatrix, global
           block.name === 'lily_pad') {
           tint = tints.constant[block.name]
         } else if (block.name.includes('leaves') || block.name === 'vine') {
-          tint = tints.foliage[biome]
+          tint = tints.foliage[tintBiome(world, biome, 'foliage')]
         } else {
-          tint = tints.grass[biome]
+          tint = tints.grass[tintBiome(world, biome, 'grass')]
         }
       }
     }
@@ -341,7 +418,7 @@ function getSectionGeometry (sx, sy, sz, world, blocksStates) {
     for (cursor.z = sz; cursor.z < sz + 16; cursor.z++) {
       for (cursor.x = sx; cursor.x < sx + 16; cursor.x++) {
         const block = world.getBlock(cursor)
-        const biome = block.biome.name
+        const biome = block.biome
         if (block.variant === undefined) {
           block.variant = getModelVariants(block, blocksStates)
         }

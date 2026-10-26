@@ -46,11 +46,28 @@ function readAnimation (basePath, name, img) {
   }
 }
 
+// A gutter round each tile (each frame of an animated one) of its own edge
+// pixels repeated, so that a sample taken just outside it (at the edge of a
+// face, or by antialiasing) takes the tile's own colour rather than its
+// neighbour's in the atlas, which would line every block's edges.
+const PAD = 2
+
+function drawPadded (g, img, sx, sy, w, h, dx, dy) {
+  g.drawImage(img, sx, sy, w, h, dx, dy, w, h)
+  g.drawImage(img, sx, sy, w, 1, dx, dy - PAD, w, PAD)
+  g.drawImage(img, sx, sy + h - 1, w, 1, dx, dy + h, w, PAD)
+  g.drawImage(img, sx, sy, 1, h, dx - PAD, dy, PAD, h)
+  g.drawImage(img, sx + w - 1, sy, 1, h, dx + w, dy, PAD, h)
+  for (const [cx, cy, tx, ty] of [[0, 0, -PAD, -PAD], [w - 1, 0, w, -PAD], [0, h - 1, -PAD, h], [w - 1, h - 1, w, h]]) {
+    g.drawImage(img, sx + cx, sy + cy, 1, 1, dx + tx, dy + ty, PAD, PAD)
+  }
+}
+
 // Tiles keep their native resolution (some are 32x32 since 26.1), so nothing
 // here assumes a single atlas-wide tile size. Each entry carries its own
-// u/v/su/sv extents, and an animated entry additionally carries its frame
-// count, frame time and per-frame UV step, since that step now varies per
-// texture rather than being uniform across the atlas.
+// u/v/su/sv extents (inside its gutter), and an animated entry additionally
+// carries its frame count, frame time and per-frame UV step, since that step
+// now varies per texture rather than being uniform across the atlas.
 function makeTextureAtlas (mcAssets) {
   const blocksTexturePath = path.join(mcAssets.directory, '/blocks')
   const textureFiles = fs.readdirSync(blocksTexturePath).filter(file => file.endsWith('.png'))
@@ -64,7 +81,7 @@ function makeTextureAtlas (mcAssets) {
     const animation = readAnimation(blocksTexturePath, file, img)
     const frames = animation ? animation.frames : [0]
     const frameHeight = animation ? animation.frameHeight : Math.min(img.width, img.height)
-    return { name: file.split('.')[0], img, animation, frames, frameHeight, w: img.width, h: frameHeight * frames.length }
+    return { name: file.split('.')[0], img, animation, frames, frameHeight, w: img.width + 2 * PAD, h: (frameHeight + 2 * PAD) * frames.length }
   })
 
   // shelf-pack: sort by height, lay out rows, then round the atlas up to a power of two
@@ -93,20 +110,22 @@ function makeTextureAtlas (mcAssets) {
 
   const canvas = new Canvas(width, height, 'png')
   const g = canvas.getContext('2d')
+  // (the gutters are single pixels stretched: kept sharp)
+  g.imageSmoothingEnabled = false
 
   const texturesIndex = {}
 
   for (const tile of tiles) {
-    const framestep = tile.frameHeight / height
-    texturesIndex[tile.name] = { u: tile.x / width, v: tile.y / height, su: tile.w / width, sv: framestep }
+    const w = tile.img.width
+    const step = tile.frameHeight + 2 * PAD
+    texturesIndex[tile.name] = { u: (tile.x + PAD) / width, v: (tile.y + PAD) / height, su: w / width, sv: tile.frameHeight / height }
     if (tile.animation) {
       texturesIndex[tile.name].frames = tile.frames.length
       texturesIndex[tile.name].frametime = tile.animation.frametime
-      texturesIndex[tile.name].framestep = framestep
+      texturesIndex[tile.name].framestep = step / height
     }
     tile.frames.forEach((frame, i) => {
-      g.drawImage(tile.img, 0, frame * tile.frameHeight, tile.w, tile.frameHeight,
-        tile.x, tile.y + i * tile.frameHeight, tile.w, tile.frameHeight)
+      drawPadded(g, tile.img, 0, frame * tile.frameHeight, w, tile.frameHeight, tile.x + PAD, tile.y + i * step + PAD)
     })
   }
 

@@ -53,7 +53,7 @@ Set a block at this position
 Updates an entity
 
 * e is a prismarine-entity, or what of it changed: `{ id, name, pos, yaw, pitch, width, height, username, itemName, skin, skinModel, cape, equipment, riding, hurt, delete }`
-* `itemName`: a dropped item's item, drawn as its icon (or block); `itemAux` its aux value on Bedrock (a bed's colour)
+* `itemName`: a dropped item's item, drawn as its icon (or block; on Bedrock, as the game draws it: a log or a chest as its block's model, a torch or a flower flat); `itemAux` its aux value on Bedrock (a bed's colour)
 * `equipment`: what it holds and wears, as mineflayer keeps it, `[main hand, off hand, boots, leggings, chestplate, helmet]` (items or their names), or by slot `{ mainhand, offhand, head, chest, legs, feet, body }`
 * Bedrock also: `metadata` (its entity data: flags, variant, colour...), `properties` (its entity properties by name), `headYaw`, `onGround`, `inWater`, `health`, `maxHealth`, `vehicle`, `event` (an entity event by the protocol's name: `hurt_animation`, `death_animation`, `arm_swing`...), `animation` (one the server plays: animate_entity), `bedrockSkin` (a player's skin, `encodeSkin()` of `viewer/lib/bedrock/entity/skinData.js` of its skin record)
 

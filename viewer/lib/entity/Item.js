@@ -1,6 +1,7 @@
 const THREE = require('three')
 const { loadTexture, loadPixels, loadJSON } = globalThis.isElectron ? require('../utils.electron.js') : require('../utils')
 const { itemIcon, isComposed, composeIcon } = require('../bedrock/itemIcon')
+const { blockItemMesh } = require('../bedrock/blockItem')
 
 // Ground display of the two item model parents: item/generated is the sprite at half scale extruded one
 // pixel deep, block/block is the block at quarter scale.
@@ -83,13 +84,18 @@ function javaIcon (version, texture) {
 
 // A Bedrock item's icon: the texture its stack's aux value picks (a bed's colour, a potion's effect), else its own,
 // with its overlay and colours (a leather helmet's dye: bedrock/itemIcon.js); textures are named as items/bed_red,
-// blocks/wool_colored_red
+// blocks/wool_colored_red. An item the game draws as its block is that block's model (block), unless its stack's aux
+// value picks an icon of its own (a legacy wool's colour); any other is drawn flat, a torch's or a flower's block
+// texture too.
 function bedrockIcon (assets, itemName, aux) {
+  const entry = assets.items?.[itemName]
+  const own = aux && (entry?.variants?.[aux] || entry?.auxIcons?.[aux])
+  if (entry?.block && !own) return { block: entry.block }
   const icon = itemIcon(assets.items, itemName, aux)
   const path = icon && /^(items|blocks)\//.test(icon.texture) ? assets.textureUrl(icon.texture) : null
   if (!path) return null
   const composed = isComposed(icon) ? { overlay: icon.overlay ? assets.textureUrl(icon.overlay) : null, tint: icon.tint } : null
-  return { path, isBlock: icon.texture.startsWith('blocks/'), composed }
+  return { path, isBlock: false, composed }
 }
 
 // a texture of RGBA pixels, rows from the top as an image's are drawn
@@ -116,6 +122,7 @@ function getItemMesh (itemName, version, fallback, options = {}) {
 
   let disposed = false
   const owned = []
+  let block = null
   group.dispose = () => {
     disposed = true
     // The map is shared through the texture cache, so only the geometry and material are ours.
@@ -124,6 +131,7 @@ function getItemMesh (itemName, version, fallback, options = {}) {
       mesh.material.userData.ownMap?.dispose()
       mesh.material.dispose()
     }
+    block?.userData.dispose()
   }
   const attach = (parent, mesh) => {
     owned.push(mesh)
@@ -134,6 +142,12 @@ function getItemMesh (itemName, version, fallback, options = {}) {
     if (disposed) return
     if (!icon) {
       attach(group, fallback())
+      return
+    }
+    if (icon.block) {
+      block = blockItemMesh(options.textures, icon.block, BLOCK_SCALE)
+      pivot.add(block)
+      group.item.size = BLOCK_SCALE
       return
     }
     const { path, isBlock, composed } = icon

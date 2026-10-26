@@ -1,4 +1,5 @@
 const { Vec3 } = require('vec3')
+const { elemFaces } = require('./elemFaces')
 
 const tints = require('minecraft-data')('1.16.2').tints
 
@@ -27,75 +28,6 @@ function tintToGl (tint) {
   const g = (tint >> 8) & 0xff
   const b = tint & 0xff
   return [r / 255, g / 255, b / 255]
-}
-
-const elemFaces = {
-  up: {
-    dir: [0, 1, 0],
-    mask1: [1, 1, 0],
-    mask2: [0, 1, 1],
-    corners: [
-      [0, 1, 1, 0, 1],
-      [1, 1, 1, 1, 1],
-      [0, 1, 0, 0, 0],
-      [1, 1, 0, 1, 0]
-    ]
-  },
-  down: {
-    dir: [0, -1, 0],
-    mask1: [1, 1, 0],
-    mask2: [0, 1, 1],
-    corners: [
-      [1, 0, 1, 0, 1],
-      [0, 0, 1, 1, 1],
-      [1, 0, 0, 0, 0],
-      [0, 0, 0, 1, 0]
-    ]
-  },
-  east: {
-    dir: [1, 0, 0],
-    mask1: [1, 1, 0],
-    mask2: [1, 0, 1],
-    corners: [
-      [1, 1, 1, 0, 0],
-      [1, 0, 1, 0, 1],
-      [1, 1, 0, 1, 0],
-      [1, 0, 0, 1, 1]
-    ]
-  },
-  west: {
-    dir: [-1, 0, 0],
-    mask1: [1, 1, 0],
-    mask2: [1, 0, 1],
-    corners: [
-      [0, 1, 0, 0, 0],
-      [0, 0, 0, 0, 1],
-      [0, 1, 1, 1, 0],
-      [0, 0, 1, 1, 1]
-    ]
-  },
-  north: {
-    dir: [0, 0, -1],
-    mask1: [1, 0, 1],
-    mask2: [0, 1, 1],
-    corners: [
-      [1, 0, 0, 0, 1],
-      [0, 0, 0, 1, 1],
-      [1, 1, 0, 0, 0],
-      [0, 1, 0, 1, 0]
-    ]
-  },
-  south: {
-    dir: [0, 0, 1],
-    mask1: [1, 0, 1],
-    mask2: [0, 1, 1],
-    corners: [
-      [0, 0, 1, 0, 1],
-      [1, 0, 1, 1, 1],
-      [0, 1, 1, 0, 0],
-      [1, 1, 1, 1, 0]
-    ]
-  }
 }
 
 // Bedrock has a block for flowing water and lava besides the still one; both are the same liquid

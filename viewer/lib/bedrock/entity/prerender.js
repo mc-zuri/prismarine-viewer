@@ -4,7 +4,8 @@
 //   public/entities/<file>.json         the version's client entities, geometry, render controllers, animations,
 //                                       animation controllers and materials; attachables: what an item worn or held
 //                                       is drawn with (armour, a shield); items: each item's icon when dropped or
-//                                       held ({ texture, variants }: the texture its stack's aux value picks);
+//                                       held ({ texture, variants }: the texture its stack's aux value picks), and
+//                                       of one the game draws as its block, block: that block's model;
 //                                       particles: its particle effects by identifier, as the packs have them (the
 //                                       entities' and the server's: bedrock/particles); textureFiles: each texture
 //                                       they name (its path in the packs) -> its file in the store
@@ -203,6 +204,81 @@ function textureSource (assets, texture) {
   return fs.existsSync(file) ? file : null
 }
 
+// ---- block items -------------------------------------------------------------------------------------------------
+
+// the colours of tinted faces: the plains biome's, as viewer/lib/models.js tints the world
+const TINTS = require('minecraft-data')('1.16.2').tints
+const colorOf = (table, key) => table.data.find(d => d.keys.includes(key))?.color ?? table.default
+function blockTint (name) {
+  const color = ['birch_leaves', 'spruce_leaves', 'lily_pad'].includes(name)
+    ? colorOf(TINTS.constant, name)
+    : name.includes('leaves') || name === 'vine' ? colorOf(TINTS.foliage, 'plains') : colorOf(TINTS.grass, 'plains')
+  return '#' + color.toString(16).padStart(6, '0')
+}
+
+// a face's UV when its model gives none, from its element's box (as lib/modelsBuilder.js takes it)
+function defaultUv (face, from, to) {
+  return {
+    north: [to[0], 16 - to[1], from[0], 16 - from[1]],
+    east: [from[2], 16 - to[1], to[2], 16 - from[1]],
+    south: [from[0], 16 - to[1], to[0], 16 - from[1]],
+    west: [from[2], 16 - to[1], to[2], 16 - from[1]],
+    up: [from[0], from[2], to[0], to[2]],
+    down: [to[0], from[2], from[0], to[2]]
+  }[face]
+}
+
+// A block item the client draws as its block (items_textures.json's model 'minecraft:block/<block>'): the block's
+// default state, its first variant (of a multipart block, the parts that always apply), as the boxes of its models,
+// each face naming its texture by its path in the packs ('blocks/stone'):
+//   [{ x?, y? (the variant's turns), elements: [{ from, to, rotation?, faces: { north: { texture, uv, rotation?, tint? (its
+//   colour, of a tinted face) } } }] }]
+// null when the block has no model. blocks: { states, models } of blocks_states.json and blocks_models.json.
+function blockItemModel (blocks, name) {
+  const state = blocks.states[name]
+  const applied = state?.variants
+    ? [Object.values(state.variants)[0]].filter(Boolean)
+    : (state?.multipart ?? []).filter(part => !part.when).map(part => part.apply)
+  const parts = []
+  for (const variant of applied.flatMap(v => Array.isArray(v) ? v.slice(0, 1) : [v])) {
+    // (its model through its parents: their textures merged, the nearest elements)
+    const textures = {}
+    let elements = null
+    const chain = []
+    for (let key = variant.model; key;) {
+      const model = blocks.models[key.replace(/^(minecraft:)?block\//, '')]
+      if (!model || chain.includes(model)) break
+      chain.push(model)
+      key = model.parent
+    }
+    for (const model of chain.reverse()) {
+      Object.assign(textures, model.textures)
+      if (model.elements) elements = model.elements
+    }
+    const textureOf = ref => {
+      for (let i = 0; typeof ref === 'string' && ref.startsWith('#') && i < 10; i++) ref = textures[ref.slice(1)]
+      if (ref && typeof ref === 'object') ref = ref.sprite
+      return typeof ref === 'string' && !ref.startsWith('#') ? ref.replace(/^minecraft:/, '').replace(/^block\//, 'blocks/') : null
+    }
+    const out = []
+    for (const element of elements ?? []) {
+      const faces = {}
+      for (const [side, face] of Object.entries(element.faces ?? {})) {
+        const texture = textureOf(face.texture)
+        if (!texture) continue
+        faces[side] = { texture, uv: face.uv ?? defaultUv(side, element.from, element.to) }
+        if (face.rotation) faces[side].rotation = face.rotation
+        if (face.tintindex !== undefined) faces[side].tint = blockTint(name)
+      }
+      if (!Object.keys(faces).length) continue
+      out.push({ from: element.from, to: element.to, ...(element.rotation ? { rotation: element.rotation } : {}), faces })
+    }
+    if (!out.length) continue
+    parts.push({ ...(variant.x ? { x: variant.x } : {}), ...(variant.y ? { y: variant.y } : {}), elements: out })
+  }
+  return parts.length ? parts : null
+}
+
 // ---- particles ---------------------------------------------------------------------------------------------------
 
 // The version's particle effects: particles.json of its minecraft-assets ({ particles: { identifier: effect as the
@@ -252,9 +328,20 @@ function entityAssets (assets, { later = [] } = {}) {
   // items' icons (dropped items, the items page): what items_textures.json says of each, but its source (see
   // bedrock/itemIcon.js); an item with no icon is kept, empty, so that it is known to have none
   data.items = {}
+  let blocks = null
   for (const entry of assets.itemsArray ?? []) {
     const item = {}
     for (const key of ['texture', 'overlay', 'tint', 'variants', 'auxIcons']) if (entry[key]) item[key] = entry[key]
+    // (one the client draws as its block: block, its model; blockItemModel)
+    const block = /^minecraft:block\/(.+)$/.exec(entry.model ?? '')?.[1]
+    if (block && assets.pathOf) {
+      blocks = blocks ?? {
+        states: JSON.parse(fs.readFileSync(assets.pathOf('blocks_states.json'), 'utf8')),
+        models: JSON.parse(fs.readFileSync(assets.pathOf('blocks_models.json'), 'utf8'))
+      }
+      const model = blockItemModel(blocks, block)
+      if (model) item.block = model
+    }
     data.items[entry.name] = item
   }
 
@@ -266,6 +353,7 @@ function entityAssets (assets, { later = [] } = {}) {
   for (const item of Object.values(data.items)) {
     const icons = [item, ...Object.values(item.auxIcons ?? {})]
     for (const p of [...icons.flatMap(icon => [icon.texture, icon.overlay]), ...Object.values(item.variants ?? {})]) if (typeof p === 'string') paths.add(p)
+    for (const part of item.block ?? []) for (const e of part.elements) for (const face of Object.values(e.faces)) paths.add(face.texture)
   }
 
   data.particles = particleEffects(assets)

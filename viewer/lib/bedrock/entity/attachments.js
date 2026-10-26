@@ -14,6 +14,7 @@
 const THREE = require('three')
 const { compile, truthy } = require('./molang')
 const { spriteGeometry } = require('../../entity/Item')
+const { blockItemMesh } = require('../blockItem')
 const { loadTexture, loadPixels } = globalThis.isElectron ? require('../../utils.electron.js') : require('../../utils')
 
 // equipment slot -> the slot as Molang names it (c.item_slot)
@@ -214,19 +215,25 @@ function heldIcon (assets, item) {
     }
   }
   const entry = assets.items?.[item]
+  // (one the game draws as its block, as its block's model: bedrock/blockItem.js)
+  if (entry?.block) {
+    const block = blockItemMesh(assets, entry.block, 16)
+    group.add(block)
+    group.userData.dispose = () => block.userData.dispose()
+    group.userData.display = DISPLAY.block
+    return group
+  }
   const texture = entry?.texture
   const url = texture && /^(items|blocks)\//.test(texture) ? assets.textureUrl(texture) : null
   if (!url) return group
-  const block = texture.startsWith('blocks/')
-  group.userData.display = DISPLAY[block ? 'block' : item === 'bow' ? 'bow' : item === 'crossbow' ? 'crossbow' : HANDHELD_ROD.test(item) ? 'handheld_rod' : HANDHELD.test(item) ? 'handheld' : 'generated']
+  group.userData.display = DISPLAY[item === 'bow' ? 'bow' : item === 'crossbow' ? 'crossbow' : HANDHELD_ROD.test(item) ? 'handheld_rod' : HANDHELD.test(item) ? 'handheld' : 'generated']
   loadPixels(url, pixels => loadTexture(url, map => {
     if (disposed) return
     map.magFilter = THREE.NearestFilter
     map.minFilter = THREE.NearestFilter
     const material = new THREE.MeshLambertMaterial({ map, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide })
-    // as an item model is, centred: a block a 16 pixel cube, an item its sprite a pixel deep
-    const geometry = block ? new THREE.BoxGeometry(16, 16, 16) : spriteGeometry(pixels, 16, 1)
-    const mesh = new THREE.Mesh(geometry, material)
+    // as an item model is, centred: its sprite a pixel deep
+    const mesh = new THREE.Mesh(spriteGeometry(pixels, 16, 1), material)
     owned.push(mesh)
     group.add(mesh)
   }))

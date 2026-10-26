@@ -108,6 +108,49 @@ describe('a version\'s entity assets', () => {
     // a version of none
     expect(entityAssets({ ...assets, particles: null }).data.particles).toEqual({})
   })
+
+  test('the block items the game draws as their block keep their block\'s model; a torch stays its icon', () => {
+    const assets = versionAssets()
+    const dir = path.dirname(assets.pathOf('x'))
+    for (const name of ['log_oak', 'log_oak_top', 'leaves_oak', 'planks_oak', 'torch_on']) {
+      fs.mkdirSync(path.join(dir, 'blocks'), { recursive: true })
+      fs.writeFileSync(path.join(dir, 'blocks', name + '.png'), name)
+    }
+    const cube = { from: [0, 0, 0], to: [16, 16, 16], faces: { up: { texture: '#up', cullface: 'up' }, north: { texture: '#side', uv: [0, 0, 16, 16], rotation: 90 } } }
+    fs.writeFileSync(path.join(dir, 'blocks_states.json'), JSON.stringify({
+      oak_log: { variants: { 'pillar_axis=y': { model: 'minecraft:block/oak_log' }, 'pillar_axis=x': { model: 'minecraft:block/oak_log', x: 90, y: 90 } } },
+      oak_leaves: { variants: { '': { model: 'minecraft:block/oak_leaves', y: 90 } } },
+      oak_fence: { multipart: [{ apply: { model: 'minecraft:block/oak_fence' } }, { apply: { model: 'minecraft:block/oak_fence_side' }, when: { 'minecraft:connection_north': '1' } }] }
+    }))
+    fs.writeFileSync(path.join(dir, 'blocks_models.json'), JSON.stringify({
+      geometry_1: { elements: [cube] },
+      oak_log: { parent: 'minecraft:block/geometry_1', textures: { up: 'minecraft:block/log_oak_top', side: 'minecraft:block/log_oak' } },
+      oak_leaves: { textures: { all: 'minecraft:block/leaves_oak' }, elements: [{ from: [0, 0, 0], to: [16, 16, 16], faces: { south: { texture: '#all', tintindex: 0 } } }] },
+      oak_fence: { textures: { wood: 'minecraft:block/planks_oak' }, elements: [{ from: [6, 0, 6], to: [10, 16, 10], rotation: { origin: [8, 8, 8], axis: 'y', angle: 45 }, faces: { east: { texture: '#wood' } } }] },
+      oak_fence_side: { textures: { wood: 'minecraft:block/planks_oak' }, elements: [{ from: [7, 12, 0], to: [9, 15, 9], faces: { east: { texture: '#wood' } } }] }
+    }))
+    assets.itemsArray = [
+      { name: 'oak_log', model: 'minecraft:block/oak_log', texture: 'blocks/log_oak' },
+      { name: 'oak_leaves', model: 'minecraft:block/oak_leaves', texture: 'blocks/leaves_oak' },
+      { name: 'oak_fence', model: 'minecraft:block/oak_fence', texture: 'blocks/planks_oak' },
+      { name: 'torch', model: 'torch', texture: 'blocks/torch_on' }
+    ]
+    const { data } = entityAssets(assets)
+    // (its default state, the first variant: its model through its parents, a face's UV its box's where it gives none)
+    expect(data.items.oak_log.block).toEqual([{
+      elements: [{
+        from: [0, 0, 0],
+        to: [16, 16, 16],
+        faces: { up: { texture: 'blocks/log_oak_top', uv: [0, 0, 16, 16] }, north: { texture: 'blocks/log_oak', uv: [0, 0, 16, 16], rotation: 90 } }
+      }]
+    }])
+    // (a tinted face in the plains' colour, the variant's turn kept)
+    expect(data.items.oak_leaves.block).toEqual([{ y: 90, elements: [{ from: [0, 0, 0], to: [16, 16, 16], faces: { south: { texture: 'blocks/leaves_oak', uv: [0, 0, 16, 16], tint: '#77ab2f' } } }] }])
+    // (of a multipart block, the parts that always apply: a fence's post, its element's turn kept)
+    expect(data.items.oak_fence.block).toEqual([{ elements: [{ from: [6, 0, 6], to: [10, 16, 10], rotation: { origin: [8, 8, 8], axis: 'y', angle: 45 }, faces: { east: { texture: 'blocks/planks_oak', uv: [6, 0, 10, 16] } } }] }])
+    expect(data.items.torch).toEqual({ texture: 'blocks/torch_on' })
+    for (const p of ['blocks/log_oak', 'blocks/log_oak_top', 'blocks/leaves_oak', 'blocks/planks_oak', 'blocks/torch_on']) expect(data.textureFiles[p]).toMatch(/^bedrock\//)
+  })
 })
 
 describe('the files', () => {
